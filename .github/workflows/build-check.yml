@@ -1,0 +1,29 @@
+name: Build Check
+
+on:
+  push:
+    branches: ['**']
+    tags-ignore: ['**']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      DALAMUD_HOME: ${{ github.workspace }}\dalamud-pinned
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 9.x
+      - name: Download Dalamud (pinned TC-compatible build)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://github.com/ffxiv-tc-port/DalamudPluginsTC/releases/download/dalamud-pin-v13.0.0.6/dalamud-api13-net9.zip -OutFile dalamud-pinned.zip
+          Expand-Archive -Force dalamud-pinned.zip "$env:DALAMUD_HOME"
+      - name: Build with dotnet
+        run: dotnet build --configuration Release

@@ -1,9 +1,9 @@
 {
-    "Author": "Usagi",
+    "Author": "Usagi, PlusoneChiang",
     "Name": "IINACT",
-    "Punchline": "A parsing plugin.",
-    "RepoUrl": "https://github.com/PlusoneChiang/IINACT",
-    "Description": "A plugin to run the FFXIV_ACT_Plugin in an ACT-like environment with a heavily modified port of Overlay Plugin for modern .NET",
+    "Punchline": "免 ACT 的戰鬥數據解析外掛。",
+    "RepoUrl": "https://github.com/ffxiv-tc-port/IINACT",
+    "Description": "在類 ACT 環境中直接執行 FFXIV_ACT_Plugin 的戰鬥數據解析外掛,內建深度改造的 Overlay Plugin 移植版,無需另外安裝 ACT。\n可搭配 Crossingway 在遊戲內顯示戰鬥數據覆蓋層。\nFork 自 marzent/IINACT(繁體中文版客戶端,API 13 / .NET 9,TC opcodes 由 PlusoneChiang 維護)。",
     "InternalName": "IINACT",
     "ApplicableVersion": "2026.07.22.0000.0000",
     "Tags": [
@@ -11,5 +11,5 @@
         "plugin",
         "ACT"
     ],
-    "IconUrl": "https://raw.githubusercontent.com/PlusoneChiang/IINACT/master/images/icon.png"
+    "IconUrl": "https://raw.githubusercontent.com/ffxiv-tc-port/DalamudPluginsTC/main/icons/IINACT.png"
 }
