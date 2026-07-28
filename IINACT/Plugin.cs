@@ -73,6 +73,8 @@ public sealed class Plugin : IDalamudPlugin
         NotificationManager = notificationManager;
         Log = pluginLog;
 
+        Localization.Init(PluginInterface.AssemblyLocation.Directory?.FullName);
+
         OpcodeManager.Instance.SetRegion(GameRegion.TraditionalChinese);
 
         var createZoneDownHookManager = Task.Run(() 
@@ -112,12 +114,12 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(MainWindowCommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Displays the IINACT main window"
+            HelpMessage = "Displays the IINACT main window".Loc()
         });
 
         CommandManager.AddHandler(EndEncCommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Ends the current encounter IINACT is parsing"
+            HelpMessage = "Ends the current encounter IINACT is parsing".Loc()
         });
 
         PluginInterface.UiBuilder.Draw += DrawUI;

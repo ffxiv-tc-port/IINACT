@@ -84,6 +84,9 @@
         <Content Include="..\external_dependencies\SafeMemoryReader.dll">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
         </Content>
+        <Content Include="LanguageChineseTraditional.ini">
+            <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+        </Content>
     </ItemGroup>
 
 </Project>
