@@ -235,6 +235,13 @@ public class MainWindow : Window, IDisposable
         if (!tab) return;
         
         ImGui.Spacing();
+
+        // 本幀開始前的設定值,用來判斷結尾是否真的需要存檔。
+        // OverlayPluginConfig.Save() 會強制完整序列化(解析舊檔、產生 .bak、寫回整份設定),
+        // 無條件每幀呼叫等於停在這個分頁就一直在主執行緒做完整檔案 I/O。
+        var originalWsServerIp = OverlayPluginConfig?.WSServerIP;
+        var originalWsServerPort = OverlayPluginConfig?.WSServerPort;
+
         var wsServerIp = OverlayPluginConfig?.WSServerIP ?? "";
         ImGui.InputText("IP", ref wsServerIp, 100, ImGuiInputTextFlags.None);
 
@@ -258,7 +265,12 @@ public class MainWindow : Window, IDisposable
                 OverlayPluginConfig.WSServerPort = port;
         }
 
-        OverlayPluginConfig?.Save();
+        if (OverlayPluginConfig is null) return;
+        if (OverlayPluginConfig.WSServerIP == originalWsServerIp &&
+            OverlayPluginConfig.WSServerPort == originalWsServerPort)
+            return;
+
+        OverlayPluginConfig.Save();
     }
 
 }
