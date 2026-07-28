@@ -1,3 +1,4 @@
+# tag-driven release via workflow_dispatch (fleet standard)
 name: Release
 
 on:
