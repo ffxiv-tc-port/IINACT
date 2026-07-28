@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -378,6 +378,7 @@ namespace RainbowMage.OverlayPlugin.EventSources
 
         private void BuildPartyMemberResults(List<PartyMember> result, PartyListEntry[] members, PartyType partyType, bool inParty)
         {
+            if (members == null) return;
             foreach (var member in members)
             {
                 if (member == null || (member.flags & 0x1) != 0x1)

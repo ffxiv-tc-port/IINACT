@@ -189,6 +189,11 @@ public unsafe class ZoneDownHookManager : IDisposable
     
     private nuint ZoneDownDetour(byte* data, byte* a2, nuint a3, nuint a4, nuint a5)
     {
+        if (isTraditionalChinese && opcodeKeyTable != null && opcodeKeyTable[0] == 0 && opcodeKeyTable[1] == 0 && opcodeKeyTable[2] == 0)
+        {
+            UpdateKeys();
+        }
+
 	    var ret = zoneDownHook.Original(data, a2, a3, a4, a5);
 
 	    var packetOffset = *(uint*)(data + 28);
@@ -270,10 +275,22 @@ public unsafe class ZoneDownHookManager : IDisposable
     
     private static string GetRunningGameVersion()
     {
-        var path = Environment.ProcessPath!;
-        var parent = Directory.GetParent(path)!.FullName;
-        var ffxivVerFile = Path.Combine(parent, "ffxivgame.ver");
-        return File.Exists(ffxivVerFile) ? File.ReadAllText(ffxivVerFile) : "0000.00.00.0000.0000";
+        try
+        {
+            var path = Environment.ProcessPath;
+            if (string.IsNullOrEmpty(path)) return "0000.00.00.0000.0000";
+            var parent = Directory.GetParent(path)?.FullName;
+            if (string.IsNullOrEmpty(parent)) return "0000.00.00.0000.0000";
+            var ffxivVerFile = Path.Combine(parent, "ffxivgame.ver");
+            if (!File.Exists(ffxivVerFile)) return "0000.00.00.0000.0000";
+            using var fs = new FileStream(ffxivVerFile, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var reader = new StreamReader(fs);
+            return reader.ReadToEnd().Trim();
+        }
+        catch
+        {
+            return "0000.00.00.0000.0000";
+        }
     }
 
     private static VersionConstants GetTraditionalChineseVersionConstants()

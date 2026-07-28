@@ -140,9 +140,9 @@ public partial class FfxivActPluginWrapper : IDisposable
             Dalamud.Game.ClientLanguage.English => Language.English,
             Dalamud.Game.ClientLanguage.German => Language.German,
             Dalamud.Game.ClientLanguage.French => Language.French,
-            _ when dalamudClientLanguage.ToString() == "ChineseSimplified" => Language.Chinese,
-            _ when dalamudClientLanguage.ToString() == "TraditionalChinese" => Language.TraditionalChinese,
-            _ => Language.English
+            _ when dalamudClientLanguage.ToString().Contains("Simplified") => Language.Chinese,
+            _ when dalamudClientLanguage.ToString().Contains("Traditional") => Language.TraditionalChinese,
+            _ => Language.TraditionalChinese
         };
 
     public void Dispose()
