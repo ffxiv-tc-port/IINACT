@@ -6,6 +6,7 @@
     "Description": "在類 ACT 環境中直接執行 FFXIV_ACT_Plugin 的戰鬥數據解析外掛,內建深度改造的 Overlay Plugin 移植版,無需另外安裝 ACT。\n可搭配 Crossingway 在遊戲內顯示戰鬥數據覆蓋層。\nFork 自 marzent/IINACT(繁體中文版客戶端,API 13 / .NET 9,TC opcodes 由 PlusoneChiang 維護)。",
     "InternalName": "IINACT",
     "ApplicableVersion": "2026.07.22.0000.0000",
+    "DalamudApiLevel": 13,
     "Tags": [
         "parsing",
         "plugin",

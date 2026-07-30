@@ -10,6 +10,8 @@ using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Utility;
 using Dalamud.Interface.Utility.Raii;
+using NAudio.Wave;
+using RainbowMage.OverlayPlugin.EventSources;
 
 namespace IINACT.Windows;
 
@@ -31,6 +33,7 @@ public class MainWindow : Window, IDisposable
     }
 
     public IPluginConfig? OverlayPluginConfig { get; set; }
+    public BuiltinEventConfig? OverlayPluginEventConfig { get; set; }
     public IReadOnlyList<RainbowMage.OverlayPlugin.IOverlayTemplate>? OverlayPresets { get; set; }
     private string[]? OverlayNames => OverlayPresets?.Select(x => x.Name).ToArray();
     public RainbowMage.OverlayPlugin.WebSocket.ServerController? Server { get; set; }
@@ -44,6 +47,7 @@ public class MainWindow : Window, IDisposable
 
         DrawMainWindow();
         DrawParseSettings();
+        DrawTtsSettings();
         DrawWebSocketSettings();
     }
 
@@ -193,6 +197,34 @@ public class MainWindow : Window, IDisposable
             Plugin.Configuration.Save();
         }
 
+        var logChatMessages = Plugin.Configuration.LogChatMessages;
+        if (ImGui.Checkbox("Include chat and echo messages in log files", ref logChatMessages))
+        {
+            Plugin.Configuration.LogChatMessages = logChatMessages;
+            Plugin.SetChatMessageLoggingEnabled(logChatMessages);
+            Plugin.Configuration.Save();
+        }
+
+        var autoDeleteNetworkLogs = Plugin.Configuration.AutoDeleteNetworkLogs;
+        if (ImGui.Checkbox("Automatically delete old network log files", ref autoDeleteNetworkLogs))
+        {
+            Plugin.Configuration.AutoDeleteNetworkLogs = autoDeleteNetworkLogs;
+            Plugin.Configuration.Save();
+        }
+
+        if (autoDeleteNetworkLogs)
+        {
+            var networkLogRetentionDays = Plugin.Configuration.NetworkLogRetentionDays;
+            ImGui.Text("Delete logs older than");
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(30 * ImGuiHelpers.GlobalScale);
+            if (ImGui.InputInt("days", ref networkLogRetentionDays))
+            {
+                Plugin.Configuration.NetworkLogRetentionDays = Math.Clamp(networkLogRetentionDays, 1, 3650);
+                Plugin.Configuration.Save();
+            }
+        }
+
         var disableDamageShield = Plugin.Configuration.DisableDamageShield;
         if (ImGui.Checkbox("Disable Damage Shield Estimates".Loc() + "###Disable Damage Shield Estimates", ref disableDamageShield))
         {
@@ -207,10 +239,36 @@ public class MainWindow : Window, IDisposable
             Plugin.Configuration.Save();
         }
 
+        var endEncounterOutOfCombat = OverlayPluginEventConfig?.EndEncounterOutOfCombat ?? true;
+        if (ImGui.Checkbox("End encounter automatically after leaving combat", ref endEncounterOutOfCombat))
+        {
+            if (OverlayPluginEventConfig is not null)
+            {
+                OverlayPluginEventConfig.EndEncounterOutOfCombat = endEncounterOutOfCombat;
+                if (OverlayPluginConfig is not null)
+                {
+                    OverlayPluginEventConfig.SaveConfig(OverlayPluginConfig);
+                    OverlayPluginConfig.Save();
+                }
+            }
+        }
+
         var showDebug = Plugin.Configuration.ShowDebug;
         if (ImGui.Checkbox("Show Debug Options".Loc() + "###Show Debug Options", ref showDebug))
         {
             Plugin.Configuration.ShowDebug = showDebug;
+            Plugin.Configuration.Save();
+        }
+
+        ImGui.Spacing();
+        ImGui.Separator();
+        ImGui.Spacing();
+
+        var playerCharacterName = Plugin.Configuration.PlayerCharacterName;
+        ImGui.SetNextItemWidth(elementWidth);
+        if (ImGui.InputText("Player name", ref playerCharacterName, 100))
+        {
+            Plugin.Configuration.PlayerCharacterName = playerCharacterName;
             Plugin.Configuration.Save();
         }
 
@@ -232,6 +290,63 @@ public class MainWindow : Window, IDisposable
         {
             Plugin.Configuration.ShowRealDoTTicks = showRealDoTTicks;
             Plugin.Configuration.Save();
+        }
+    }
+
+    private void DrawTtsSettings()
+    {
+        using var tab = ImRaii.TabItem("Text to Speech");
+        if (!tab) return;
+        
+        ImGui.Spacing();
+        ImGui.TextColored(ImGuiColors.DalamudGrey, "Google TTS:");
+        ImGui.Spacing();
+
+        var forceGoogleTts = Plugin.Configuration.ForceGoogleTts;
+        if (ImGui.Checkbox("Force Google TTS instead of SAPI", ref forceGoogleTts))
+        {
+            Plugin.Configuration.ForceGoogleTts = forceGoogleTts;
+            Plugin.Configuration.Save();
+        }
+
+        ImGui.Spacing();
+
+        var googleTtsLanguage = Plugin.Configuration.GoogleTtsLanguage;
+        ImGui.SetNextItemWidth(100 * ImGuiHelpers.GlobalScale);
+        if (ImGui.InputText("Language", ref googleTtsLanguage, 10))
+        {
+            Plugin.Configuration.GoogleTtsLanguage = googleTtsLanguage;
+            Plugin.Configuration.Save();
+        }
+        ImGui.SameLine();
+        ImGui.TextColored(ImGuiColors.DalamudGrey, "(e.g. ja, en, de, fr, ko)");
+        ImGui.Spacing();
+
+        var ttsDeviceCount = WaveOut.DeviceCount;
+        var currentDevice = Plugin.Configuration.TtsPlaybackDevice;
+        var currentDeviceName = currentDevice == -1 ? "Default" : WaveOut.GetCapabilities(currentDevice).ProductName;
+        
+        ImGui.SetNextItemWidth(200 * ImGuiHelpers.GlobalScale);
+
+        if (ImGui.BeginCombo("Playback Device", currentDeviceName))
+        {
+            if (ImGui.Selectable("Default", currentDevice == -1))
+            {
+                Plugin.Configuration.TtsPlaybackDevice = -1;
+                Plugin.Configuration.Save();
+            }
+
+            for (var i = 0; i < ttsDeviceCount; i++)
+            {
+                var caps = WaveOut.GetCapabilities(i);
+                if (ImGui.Selectable(caps.ProductName, currentDevice == i))
+                {
+                    Plugin.Configuration.TtsPlaybackDevice = i;
+                    Plugin.Configuration.Save();
+                }
+            }
+
+            ImGui.EndCombo();
         }
     }
 

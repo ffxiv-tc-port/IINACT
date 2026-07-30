@@ -9,9 +9,11 @@ internal class TextToSpeechProvider
     private readonly object speechLock = new();
     private readonly HttpClient client = new();
     private readonly SpeechSynthesizer? speechSynthesizer;
+    private readonly Configuration configuration;
     
-    public TextToSpeechProvider()
+    public TextToSpeechProvider(Configuration config)
     {
+        this.configuration = config;
         if (!Dalamud.Utility.Util.IsWine())
         {
             try
@@ -35,7 +37,7 @@ internal class TextToSpeechProvider
         {
             try
             {
-                if (speechSynthesizer == null)
+                if (speechSynthesizer == null || configuration.ForceGoogleTts)
                     SpeakGoogle(message);
                 else
                     SpeakSapi(message);
@@ -50,13 +52,15 @@ internal class TextToSpeechProvider
     private void SpeakGoogle(string message)
     {
         var query = HttpUtility.UrlEncode(message);
-        const string lang = "en";
+        var lang = configuration.GoogleTtsLanguage;
+        if (string.IsNullOrWhiteSpace(lang)) lang = "en";
         var url = $"https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl={lang}&q={query}";
         var mp3Data = client.GetByteArrayAsync(url).Result;
 
         using var stream = new MemoryStream(mp3Data);
         using var reader = new Mp3FileReader(stream);
         using var waveOut = new WaveOutEvent();
+        waveOut.DeviceNumber = configuration.TtsPlaybackDevice;
         waveOut.Init(reader);
         var waitHandle = new ManualResetEventSlim(false);
         
