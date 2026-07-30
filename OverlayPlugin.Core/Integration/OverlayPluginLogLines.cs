@@ -128,18 +128,16 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors
                                 ? string.Join(", ", regionOpcodes.Keys)
                                 : "(none)";
                             logger.Log(LogLevel.Warning,
-                                $"No {opcodeType} opcodes for game region {machinaRegion}, version {version}. " +
-                                $"Opcode data is only available for: {knownVersions}. " +
-                                "Every OverlayPlugin custom network log line is therefore DISABLED " +
-                                "(MapEffect, NpcYell, Countdown, CountdownCancel, RSVData, CEDirector, " +
-                                "BattleTalk2, ActorMove, ActorSetPos, SpawnNpcExtra), so overlays and " +
-                                "cactbot triggers that depend on those lines will not fire. " +
-                                "Combat damage/healing parsing is NOT affected -- that comes from " +
-                                "FFXIV_ACT_Plugin and works normally. " +
-                                "Opcodes are deliberately not carried over from an older game version, " +
-                                "because they are reshuffled every patch and wrong opcodes would emit " +
-                                "wrong log lines. This resolves itself once opcode data for this game " +
-                                "version is added to opcodes.jsonc.");
+                                $"找不到對應的 {opcodeType} opcode:遊戲區域 {machinaRegion}、版本 {version}。" +
+                                $"目前只有這些版本的 opcode 資料:{knownVersions}。" +
+                                "因此 OverlayPlugin 的自訂網路 log line 全部停用" +
+                                "(MapEffect、NpcYell、Countdown、CountdownCancel、RSVData、CEDirector、" +
+                                "BattleTalk2、ActorMove、ActorSetPos、SpawnNpcExtra)," +
+                                "依賴這些 log line 的懸浮視窗與 cactbot 觸發器不會被觸發。" +
+                                "傷害/治療量的統計解析不受影響——那來自 FFXIV_ACT_Plugin,運作正常。" +
+                                "opcode 刻意不沿用舊版遊戲的數值:它每次改版都會重新洗牌," +
+                                "用錯的 opcode 會產生錯誤的 log line,比不產生更糟。" +
+                                "等 opcodes.jsonc 補上這個遊戲版本的資料後就會自動恢復。");
                         }
                         logger.Log(LogLevel.Debug,
                             $"[opcodes] disabled: no {opcodeType} opcode for {machinaRegion}/{version}: {name}");
