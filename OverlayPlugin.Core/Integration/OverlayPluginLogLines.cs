@@ -52,6 +52,10 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors
         private int exceptionCount = 0;
         private const int maxExceptionsLogged = 3;
 
+        // TC fork: ensures the "no opcodes for this game version" explanation is emitted exactly
+        // once, independently of the maxExceptionsLogged budget above.
+        private bool loggedMissingVersionWarning = false;
+
         public OverlayPluginLogLineConfig(TinyIoCContainer container)
         {
             logger = container.Resolve<ILogger>();
@@ -111,7 +115,35 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors
                 else
                 {
                     if (repository.GetMachinaRegion().ToString() == machinaRegion)
-                        LogWarning($"No {opcodeType} opcodes for game region {machinaRegion}, version {version}");
+                    {
+                        // TC fork: the old code logged a bare one-line warning through the
+                        // shared maxExceptionsLogged budget, so the user saw 3 truncated,
+                        // unexplained copies and had no idea what had actually stopped working.
+                        // Log one complete, actionable warning instead (outside that budget),
+                        // and keep the per-opcode detail at Debug level.
+                        if (!loggedMissingVersionWarning)
+                        {
+                            loggedMissingVersionWarning = true;
+                            var knownVersions = regionOpcodes.Keys.Count > 0
+                                ? string.Join(", ", regionOpcodes.Keys)
+                                : "(none)";
+                            logger.Log(LogLevel.Warning,
+                                $"No {opcodeType} opcodes for game region {machinaRegion}, version {version}. " +
+                                $"Opcode data is only available for: {knownVersions}. " +
+                                "Every OverlayPlugin custom network log line is therefore DISABLED " +
+                                "(MapEffect, NpcYell, Countdown, CountdownCancel, RSVData, CEDirector, " +
+                                "BattleTalk2, ActorMove, ActorSetPos, SpawnNpcExtra), so overlays and " +
+                                "cactbot triggers that depend on those lines will not fire. " +
+                                "Combat damage/healing parsing is NOT affected -- that comes from " +
+                                "FFXIV_ACT_Plugin and works normally. " +
+                                "Opcodes are deliberately not carried over from an older game version, " +
+                                "because they are reshuffled every patch and wrong opcodes would emit " +
+                                "wrong log lines. This resolves itself once opcode data for this game " +
+                                "version is added to opcodes.jsonc.");
+                        }
+                        logger.Log(LogLevel.Debug,
+                            $"[opcodes] disabled: no {opcodeType} opcode for {machinaRegion}/{version}: {name}");
+                    }
                 }
             }
             else
