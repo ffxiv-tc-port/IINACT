@@ -285,10 +285,18 @@ public class CombatantData : IComparable, IEquatable<CombatantData>, IComparable
             var masterSwingTimes = new List<DateTime>(value.Items.Select(i => i.Time));
 
             var fightDuration = TimeSpan.Zero;
-            var lastMasterSwingTime = DateTime.MinValue;
 
             for (var i = 0; i < fightStartTimes.Count; i++)
             {
+                // 🔴 這個變數原本宣告在迴圈外面，於是每個窗口的第一擊會跟「上一個窗口的最後一擊」
+                // 相減，把兩場拉怪之間的整段空檔算進戰鬥時間。逐窗口累加的整個迴圈就是為了排除
+                // 那些空檔，不重置等於讓迴圈失去意義（總和退化成「最後一擊 − 最早一擊」）。
+                //
+                // 2026-07-31 實機證實：使用者在 22:23–22:27 與 22:30–22:46 各打一場，個人 DPS 的
+                // 分母被算成 1220 秒（正好是 22:25:46 → 22:46:06）；同場傷害相近、活躍時間也相近
+                // 但只打第二場的另一位玩家分母正常，於是兩人 DPS 差了 8.7 倍。
+                var lastMasterSwingTime = DateTime.MinValue;
+
                 if (i >= fightEndTimes.Count) continue;
                 var start = fightStartTimes[i];
                 var end = fightEndTimes[i];
