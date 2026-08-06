@@ -17,11 +17,13 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
     {
         private readonly TinyIoCContainer container;
         private readonly FFXIVRepository repository;
+        private readonly ILogger logger;
         private ICombatantMemory memory = null;
 
         public CombatantMemoryManager(TinyIoCContainer container)
         {
             this.container = container;
+            logger = container.Resolve<ILogger>();
             container.Register<ICombatantMemory70, CombatantMemory70>();
             container.Register<ICombatantMemory71, CombatantMemory71>();
             container.Register<ICombatantMemory72, CombatantMemory72>();
@@ -66,6 +68,12 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
             // (FindCandidate targets tcVersion 99.0 and 75 sorts last), so it is left out.
             // Re-enable only if the TC client is ever confirmed to move to the 7.5 layout.
             memory = FFXIVMemory.FindCandidate(candidates, repository.GetMachinaRegion());
+            // Info level on purpose: per-candidate "Found combatant memory via X" lines above tell us
+            // which candidates validated, but not which one FindCandidate actually selected - and that
+            // selection decides whether the TC client reads combatant fields at the right offsets.
+            logger.Log(LogLevel.Info, "CombatantMemoryManager: selected {0} (region {1})",
+                       memory == null ? "no candidate" : memory.GetType().Name,
+                       repository.GetMachinaRegion());
         }
 
         public bool IsValid()
