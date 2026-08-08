@@ -194,7 +194,7 @@ public unsafe class ZoneDownHookManager : IDisposable
             UpdateKeys();
         }
 
-	    var ret = zoneDownHook.Original(data, a2, a3, a4, a5);
+	    var ret = zoneDownHook.OriginalDisposeSafe(data, a2, a3, a4, a5);
 
 	    var packetOffset = *(uint*)(data + 28);
 	    if (packetOffset != 0) return ret;
