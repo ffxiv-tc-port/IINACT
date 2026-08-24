@@ -198,7 +198,7 @@ public class MainWindow : Window, IDisposable
         }
 
         var logChatMessages = Plugin.Configuration.LogChatMessages;
-        if (ImGui.Checkbox("Include chat and echo messages in log files", ref logChatMessages))
+        if (ImGui.Checkbox("Include chat and echo messages in log files".Loc() + "###Include chat and echo messages in log files", ref logChatMessages))
         {
             Plugin.Configuration.LogChatMessages = logChatMessages;
             Plugin.SetChatMessageLoggingEnabled(logChatMessages);
@@ -206,7 +206,7 @@ public class MainWindow : Window, IDisposable
         }
 
         var autoDeleteNetworkLogs = Plugin.Configuration.AutoDeleteNetworkLogs;
-        if (ImGui.Checkbox("Automatically delete old network log files", ref autoDeleteNetworkLogs))
+        if (ImGui.Checkbox("Automatically delete old network log files".Loc() + "###Automatically delete old network log files", ref autoDeleteNetworkLogs))
         {
             Plugin.Configuration.AutoDeleteNetworkLogs = autoDeleteNetworkLogs;
             Plugin.Configuration.Save();
@@ -215,10 +215,10 @@ public class MainWindow : Window, IDisposable
         if (autoDeleteNetworkLogs)
         {
             var networkLogRetentionDays = Plugin.Configuration.NetworkLogRetentionDays;
-            ImGui.Text("Delete logs older than");
+            ImGui.Text("Delete logs older than".Loc());
             ImGui.SameLine();
             ImGui.SetNextItemWidth(30 * ImGuiHelpers.GlobalScale);
-            if (ImGui.InputInt("days", ref networkLogRetentionDays))
+            if (ImGui.InputInt("days".Loc() + "###days", ref networkLogRetentionDays))
             {
                 Plugin.Configuration.NetworkLogRetentionDays = Math.Clamp(networkLogRetentionDays, 1, 3650);
                 Plugin.Configuration.Save();
@@ -240,7 +240,7 @@ public class MainWindow : Window, IDisposable
         }
 
         var endEncounterOutOfCombat = OverlayPluginEventConfig?.EndEncounterOutOfCombat ?? true;
-        if (ImGui.Checkbox("End encounter automatically after leaving combat", ref endEncounterOutOfCombat))
+        if (ImGui.Checkbox("End encounter automatically after leaving combat".Loc() + "###End encounter automatically after leaving combat", ref endEncounterOutOfCombat))
         {
             if (OverlayPluginEventConfig is not null)
             {
@@ -266,7 +266,7 @@ public class MainWindow : Window, IDisposable
 
         var playerCharacterName = Plugin.Configuration.PlayerCharacterName;
         ImGui.SetNextItemWidth(elementWidth);
-        if (ImGui.InputText("Player name", ref playerCharacterName, 100))
+        if (ImGui.InputText("Player name".Loc() + "###Player name", ref playerCharacterName, 100))
         {
             Plugin.Configuration.PlayerCharacterName = playerCharacterName;
             Plugin.Configuration.Save();
@@ -295,15 +295,15 @@ public class MainWindow : Window, IDisposable
 
     private void DrawTtsSettings()
     {
-        using var tab = ImRaii.TabItem("Text to Speech");
+        using var tab = ImRaii.TabItem("Text to Speech".Loc() + "###Text to Speech");
         if (!tab) return;
-        
+
         ImGui.Spacing();
-        ImGui.TextColored(ImGuiColors.DalamudGrey, "Google TTS:");
+        ImGui.TextColored(ImGuiColors.DalamudGrey, "Google TTS:".Loc());
         ImGui.Spacing();
 
         var forceGoogleTts = Plugin.Configuration.ForceGoogleTts;
-        if (ImGui.Checkbox("Force Google TTS instead of SAPI", ref forceGoogleTts))
+        if (ImGui.Checkbox("Force Google TTS instead of SAPI".Loc() + "###Force Google TTS instead of SAPI", ref forceGoogleTts))
         {
             Plugin.Configuration.ForceGoogleTts = forceGoogleTts;
             Plugin.Configuration.Save();
@@ -313,24 +313,24 @@ public class MainWindow : Window, IDisposable
 
         var googleTtsLanguage = Plugin.Configuration.GoogleTtsLanguage;
         ImGui.SetNextItemWidth(100 * ImGuiHelpers.GlobalScale);
-        if (ImGui.InputText("Language", ref googleTtsLanguage, 10))
+        if (ImGui.InputText("Language".Loc() + "###Language", ref googleTtsLanguage, 10))
         {
             Plugin.Configuration.GoogleTtsLanguage = googleTtsLanguage;
             Plugin.Configuration.Save();
         }
         ImGui.SameLine();
-        ImGui.TextColored(ImGuiColors.DalamudGrey, "(e.g. ja, en, de, fr, ko)");
+        ImGui.TextColored(ImGuiColors.DalamudGrey, "(e.g. ja, en, de, fr, ko)".Loc());
         ImGui.Spacing();
 
         var ttsDeviceCount = WaveOut.DeviceCount;
         var currentDevice = Plugin.Configuration.TtsPlaybackDevice;
-        var currentDeviceName = currentDevice == -1 ? "Default" : WaveOut.GetCapabilities(currentDevice).ProductName;
-        
+        var currentDeviceName = currentDevice == -1 ? "Default".Loc() : WaveOut.GetCapabilities(currentDevice).ProductName;
+
         ImGui.SetNextItemWidth(200 * ImGuiHelpers.GlobalScale);
 
-        if (ImGui.BeginCombo("Playback Device", currentDeviceName))
+        if (ImGui.BeginCombo("Playback Device".Loc() + "###Playback Device", currentDeviceName))
         {
-            if (ImGui.Selectable("Default", currentDevice == -1))
+            if (ImGui.Selectable("Default".Loc(), currentDevice == -1))
             {
                 Plugin.Configuration.TtsPlaybackDevice = -1;
                 Plugin.Configuration.Save();
