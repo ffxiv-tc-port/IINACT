@@ -119,53 +119,48 @@ RegionID = Region.TraditionalChinese,
 
 ### 3-3. `IINACT/Network/ZoneDownHookManager.cs` — 核心封包解混淆
 
-這是最關鍵的修改，防止 plugin 在 TC 啟動時崩潰。
+> 🔴 **2026-08-13 訂正**：本節舊版寫「TC binary 沒有靜態 `OpcodeKeyTable`，全域簽章
+> `OpcodeKeyTableSignature` 不存在」，**兩句都是錯的**。照著它做出來的「把 Key0/Key1/Key2
+> 當成三筆 opcodeKeyTable」實作會讓所有傷害數值被 XOR 成六萬多、DPS 差兩個數量級。
+> 下面是離線反組譯 ＋ 實機封包向量驗證之後的正確版本。
 
-**原因**：TC binary 沒有靜態 `OpcodeKeyTable`，全域簽章 `OpcodeKeyTableSignature` 不存在。
+**台服 `PacketDispatcher::OnReceivePacket`（7.20 ＝ `0x1417BFD80`）與國際服 7.3 世代同構**：
 
-確認以下三段程式碼存在：
+```
+baseKey        = Key[opcode % 3] - GameSessionRandom - LastPacketRandom
+opcodeBasedKey = opcodeKeyTable[(opcode + baseKey) % 96]
+ActionEffect   : *(int*)(ipc + 24)         -= baseKey
+                 *(short*)(ipc + 64 + i*8) ^= (short)(baseKey + opcodeBasedKey)
+```
+
+- `opcodeKeyTable` 是 **`.rdata` 裡的 96 筆 int32 靜態表**（7.20 解到模組位移 `0x21A4510`）。
+- **IINACT 原有的 `OpcodeKeyTableSignature`（`?? ?? ?? 2B C8 ?? 8B ?? 8A ?? ?? ?? ?? 41 81`）
+  在台服照樣命中**，位置就在 `OnReceivePacket + 0x1A4`。⇒ **位址不要寫死**，走簽章掃描。
+- 因此台服要用 **`Unscrambler73`**，不是 `Unscrambler72`：7.2 世代把 `opcodeBasedKey` 寫死成
+  每個 opcode 一個立即數（`ActionEffect01 = 20497` 那一組），台服根本沒有那組常數。
+
+確認以下程式碼存在：
 
 **① 欄位宣告**（class 頂端）：
 ```csharp
 private readonly bool isTraditionalChinese;
 ```
 
-**② Constructor 中的 TC 路徑**（在 `else if (isTraditionalChinese)` 區塊）：
+**② Constructor 中的 TC 路徑**：
 ```csharp
-isTraditionalChinese = gameRegion == Machina.FFXIV.GameRegion.TraditionalChinese;
-
-// ...
-
-else if (isTraditionalChinese)
-{
-    Plugin.Log.Warning("[ZoneDownHookManager] TraditionalChinese region: using dynamic 3-entry key table from PacketDispatcher");
-    versionConstants = GetFallbackVersionConstant(0, 12);
-    unscrambler = new Unscrambler73();
-    unscrambler.Initialize(versionConstants);
-}
-
-// ...
-
-if (isTraditionalChinese)
-{
-    opcodeKeyTable = new int[3];
-    Plugin.Log.Debug("[ZoneDownHookManager] TC: opcodeKeyTable will be populated from PacketDispatcher keys");
-}
+var (tcTableOffset, tcTableSize) = TryDiscoverOpcodeKeyTable(multiScanner, moduleBase);
+versionConstants = GetTraditionalChineseVersionConstants(tcTableOffset, tcTableSize);
+unscrambler = new Unscrambler73();
+unscrambler.Initialize(versionConstants);
 ```
+掃不到時 `TryDiscoverOpcodeKeyTable` 回 `(0, 0)`，`Unscrambler73` 拿到空表就整個不動手
+（fail-closed）。**不要拿寫死的位址頂上去** —— 改版後寫死的位址只會靜默指到別的資料上。
 
-**③ `UpdateKeys()` 中的 TC key table 同步**：
-```csharp
-if (isTraditionalChinese)
-{
-    opcodeKeyTable[0] = key0;
-    opcodeKeyTable[1] = key1;
-    opcodeKeyTable[2] = key2;
-}
-```
+**③ `UpdateKeys()` 不再碰 `opcodeKeyTable`**：三把 session 金鑰與 96 筆靜態表是兩件不同的
+東西，在 `(opcode + baseKey) % 96` 這條索引式裡各司其職。
 
-> **技術背景**：TC `OnReceivePacket` 在 offset `+0x195` 用 `opcode % 3` 索引
-> `PacketDispatcher.Key0/Key1/Key2`（struct offset `0x20/0x24/0x28`）作為 key table，
-> 而非 Global 的靜態 module-relative table。
+**驗證工具**：`C:/Users/lother/.claude/tools/sigscan/iinact_tc_unscramble_verify.py`
+（離線唯讀；重放 10 筆實機封包向量，遮罩全部由執行檔的靜態表算出）。
 
 ---
 
@@ -212,18 +207,26 @@ git submodule update --remote machina
 # 或手動 cd machina && git checkout <new_commit>
 ```
 
-### 4-3. 目前版本（`2026.03.12.0000.0000`）關鍵 opcodes：
+### 4-3. 關鍵 obfuscated opcodes（7.20，來源＝執行檔自己的分派表）
 
-| Opcode 名稱 | 值 | 說明 |
-|---|---|---|
-| PlayerSpawn | 0x3B2 | 玩家進場 |
-| NpcSpawn | 0x1D8 | NPC/怪物進場 |
-| NpcSpawn2 | 0x2C2 | NPC/怪物進場（次要） |
-| Ability1 | 0xC8 | 單體技能效果 |
-| Ability8 | — | 8連技能效果 |
-| StatusEffectList | 0x154 | 狀態效果列表 |
-| ActorControl | 0x18D | 角色控制 |
-| ActorCast | 0x1ED | 詠唱 |
+下表不是抄社群資料，是從 `OnReceivePacket` 的 switch/jump table 讀出來的，
+可以拿來對照 `TraditionalChinese.txt` 有沒有過期：
+
+| opcode | 用途 | opcode | 用途 |
+|---|---|---|---|
+| 0x0D2 | Examine | 0x26D | ActionEffect08 |
+| 0x123 | StatusEffectList3 | 0x26F | StatusEffectList |
+| 0x15A | ActorControl | 0x275 | UpdateGearset |
+| 0x1C6 | UnknownEffect01 | 0x2D2 | NpcSpawn |
+| 0x1CA | ActionEffect16 | 0x35C | ActorCast |
+| 0x1E7 | PlayerSpawn | 0x397 | UpdateParty |
+| 0x1F7 | ActionEffect04 | 0x3A8 | ActionEffect32 |
+| 0x21D | ActionEffect02 | 0x3B5 | UnknownEffect16 |
+| 0x22C | NpcSpawn2 | 0x258 | ActionEffect24 |
+| 0x25E | ActionEffect01 | | |
+
+> ⚠️ `0x22C` 與 `0x2D2` 兩支處理常式**位元組完全相同**，所以 NpcSpawn / NpcSpawn2
+> 誰是誰不影響解混淆結果；不要為了「名字對不對」去改 Machina。
 
 ### 如何取得新版 opcodes：
 
@@ -289,7 +292,7 @@ dotnet build IINACT/IINACT.csproj -c Release
 
 | 項目 | 狀態 | 說明 |
 |---|---|---|
-| 解混淆正確性 | ⚠️ 未完整驗證 | TC `OnReceivePacket` 在 `+0x21A` 用靜態常數 `XOR 0xF1E2D9C8`，與 Unscrambler73 預期不同。戰鬥封包可能仍有問題 |
+| 解混淆正確性 | ✅ 2026-08-13 已驗證 | 台服＝Unscrambler73 演算法 ＋ `.rdata` 96 筆靜態 `opcodeKeyTable`（簽章掃描取址）。10 筆實機封包向量重放通過：未用效果槽解密後全為 0、型別 0x1B StartActionCombo 的值等於解出來的 actionId。工具見 3-3 節 |
 | PacketDispatcher 初始化時序 | ⚠️ 未驗證 | Plugin 載入早期 `GetInstance()` 可能回傳 null |
 | TC locale 在 cactbot overlay | ℹ️ 設計決策 | TC 沒有獨立 locale → fallback 到 English intl（`FFXIVProcessIntl` offset 正確） |
 | FetchDependencies CN URL | ℹ️ 無需修改 | TC 使用 Global FFXIV_ACT_Plugin（iinact.com），非 cninact.diemoe.net |

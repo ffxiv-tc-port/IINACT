@@ -63,7 +63,13 @@ namespace RainbowMage.OverlayPlugin.EventSources
 
             partyList.ChocoboCount = addonPartyList.ChocoboCount;
             partyList.MemberCount = addonPartyList.MemberCount;
-            partyList.PartyType = addonPartyList.PartyTypeTextNode->NodeText.ToString();
+            // PartyTypeTextNode 是 addon 上的節點指標，節點尚未建立（開圖中、隊伍列還在初始化）
+            // 時是 null，直接解參考 NodeText 就是 AccessViolation。
+            // 取不到回空字串——與同檔 TextNodeToEntry 對 Name 節點的處理一致，
+            // 送給疊加層的 JSON 少一個欄位值比整個外掛崩掉好。
+            partyList.PartyType = addonPartyList.PartyTypeTextNode == null
+                ? ""
+                : addonPartyList.PartyTypeTextNode->NodeText.ToString();
             partyList.PetCount = addonPartyList.PetCount;
             partyList.TrustCount = addonPartyList.TrustCount;
 
