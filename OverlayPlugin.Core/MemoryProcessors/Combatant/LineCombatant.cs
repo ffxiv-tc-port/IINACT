@@ -459,22 +459,36 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
             logWriter(line, ffxiv.GetServerTimestamp());
         }
 
+        private static bool loggedMessageReceivedException = false;
+
         private unsafe void MessageReceived(string id, long epoch, byte[] message)
         {
-            fixed (byte* buffer = message)
+            try
             {
-                var header = Marshal.PtrToStructure<Server_MessageHeader>(new IntPtr(buffer));
-                // Only check if we're not looking at a packet that's for just us
-                if (header.ActorID != header.LoginUserID)
+                fixed (byte* buffer = message)
                 {
-                    DateTime serverTime = ffxiv.EpochToDateTime(epoch);
-                    var delayDefault = CombatantChangeCriteria.Criteria(inCombat).DelayDefault;
-                    // Also only check if we're beyond the default delay for this ID, or if this ID doesn't exist yet
-                    // This check is in place to avoid reading memory every packet, excessively
-                    if (!combatantStateMap.ContainsKey(header.ActorID) || (serverTime - combatantStateMap[header.ActorID].lastUpdated).TotalMilliseconds > delayDefault)
+                    var header = Marshal.PtrToStructure<Server_MessageHeader>(new IntPtr(buffer));
+                    // Only check if we're not looking at a packet that's for just us
+                    if (header.ActorID != header.LoginUserID)
                     {
-                        CheckCombatants(serverTime, header.ActorID);
+                        DateTime serverTime = ffxiv.EpochToDateTime(epoch);
+                        var delayDefault = CombatantChangeCriteria.Criteria(inCombat).DelayDefault;
+                        // Also only check if we're beyond the default delay for this ID, or if this ID doesn't exist yet
+                        // This check is in place to avoid reading memory every packet, excessively
+                        if (!combatantStateMap.ContainsKey(header.ActorID) || (serverTime - combatantStateMap[header.ActorID].lastUpdated).TotalMilliseconds > delayDefault)
+                        {
+                            CheckCombatants(serverTime, header.ActorID);
+                        }
                     }
+                }
+            }
+            catch (Exception e)
+            {
+                // Guard against log spam: this handler runs per incoming packet, so only report once.
+                if (!loggedMessageReceivedException)
+                {
+                    loggedMessageReceivedException = true;
+                    logger?.Log(LogLevel.Error, $"LineCombatant: Exception in MessageReceived: {e}");
                 }
             }
         }

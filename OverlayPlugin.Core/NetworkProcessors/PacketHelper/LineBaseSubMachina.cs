@@ -8,6 +8,9 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors.PacketHelper
         where PacketType : MachinaPacketWrapper, new()
     {
         protected static FFXIVRepository ffxiv;
+        protected static ILogger baseLogger;
+        private static bool loggedMessageReceivedException = false;
+        private readonly string logLineName;
 
         protected readonly Func<string, DateTime, bool> logWriter;
         protected MachinaRegionalizedPacketHelper<PacketType> packetHelper;
@@ -15,7 +18,9 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors.PacketHelper
 
         public LineBaseSubMachina(TinyIoCContainer container, uint logFileLineID, string logLineName, string machinaPacketName)
         {
+            this.logLineName = logLineName;
             ffxiv = ffxiv ?? container.Resolve<FFXIVRepository>();
+            baseLogger = baseLogger ?? container.Resolve<ILogger>();
             ffxiv.RegisterNetworkParser(MessageReceived);
             ffxiv.RegisterProcessChangedHandler(ProcessChanged);
 
@@ -32,8 +37,7 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors.PacketHelper
             }
             else
             {
-                var logger = container.Resolve<ILogger>();
-                logger.Log(LogLevel.Error, $"Failed to initialize {logFileLineID}: Failed to create {machinaPacketName} packet helper from Machina structs");
+                baseLogger.Log(LogLevel.Error, $"Failed to initialize {logFileLineID}: Failed to create {machinaPacketName} packet helper from Machina structs");
             }
         }
 
@@ -47,21 +51,33 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors.PacketHelper
 
         protected virtual unsafe void MessageReceived(string id, long epoch, byte[] message)
         {
-            if (packetHelper == null)
-                return;
-
-            if (currentRegion == null)
-                currentRegion = ffxiv.GetMachinaRegion();
-
-            if (currentRegion == null)
-                return;
-
-            var line = packetHelper[currentRegion.Value].ToString(epoch, message);
-
-            if (line != null)
+            try
             {
-                DateTime serverTime = ffxiv.EpochToDateTime(epoch);
-                logWriter(line, serverTime);
+                if (packetHelper == null)
+                    return;
+
+                if (currentRegion == null)
+                    currentRegion = ffxiv.GetMachinaRegion();
+
+                if (currentRegion == null)
+                    return;
+
+                var line = packetHelper[currentRegion.Value].ToString(epoch, message);
+
+                if (line != null)
+                {
+                    DateTime serverTime = ffxiv.EpochToDateTime(epoch);
+                    logWriter(line, serverTime);
+                }
+            }
+            catch (Exception e)
+            {
+                // Guard against log spam: this handler runs per incoming packet, so only report once.
+                if (!loggedMessageReceivedException)
+                {
+                    loggedMessageReceivedException = true;
+                    baseLogger?.Log(LogLevel.Error, $"{logLineName}: Exception in MessageReceived: {e}");
+                }
             }
         }
     }
