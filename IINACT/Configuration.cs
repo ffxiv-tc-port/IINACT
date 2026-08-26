@@ -21,6 +21,12 @@ public class Configuration : IPluginConfiguration
     public bool DisableCombinePets { get; set; }
 
     public bool DisablePvp { get; set; }
+
+    public bool LogChatMessages { get; set; } = true;
+
+    public bool AutoDeleteNetworkLogs { get; set; }
+
+    public int NetworkLogRetentionDays { get; set; } = 30;
     
     public bool SimulateIndividualDoTCrits { get; set; }
 
@@ -46,9 +52,21 @@ public class Configuration : IPluginConfiguration
         set => Advanced_Combat_Tracker.ActGlobals.oFormActMain.DisableWritingPvpLogFile = value;
     }
 
+    public string PlayerCharacterName
+    {
+        get => Advanced_Combat_Tracker.ActGlobals.charName;
+        set => Advanced_Combat_Tracker.ActGlobals.charName = string.IsNullOrEmpty(value) ? "YOU" : value;
+    }
+
     public int Version { get; set; } = 1;
     
     public string? SelectedOverlay { get; set; }
+
+    public string GoogleTtsLanguage { get; set; } = "en";
+    
+    public bool ForceGoogleTts { get; set; }
+
+    public int TtsPlaybackDevice { get; set; } = -1;
 
     public void Initialize(IDalamudPluginInterface pluginInterface)
     {

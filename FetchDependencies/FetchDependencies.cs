@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Text.Json.Nodes;
 
 namespace FetchDependencies;
 
@@ -29,32 +30,29 @@ public class FetchDependencies
     {
         var pluginZipPath = Path.Combine(DependenciesDir, "FFXIV_ACT_Plugin.zip");
         var pluginPath = Path.Combine(DependenciesDir, "FFXIV_ACT_Plugin.dll");
-        var deucalionPath = Path.Combine(DependenciesDir, "deucalion-1.1.0.distrib.dll");
         
         if (!NeedsUpdate(pluginPath))
             return;
-
-        if (IsChinese)
-            DownloadFile(PluginUrlChinese, pluginPath);
-        else
+        
+        if (!File.Exists(pluginZipPath))
         {
-            if (!File.Exists(pluginZipPath))
-                DownloadFile(PluginUrlGlobal, pluginZipPath);
-            try
-            {
-                ZipFile.ExtractToDirectory(pluginZipPath, DependenciesDir, true);
-            }
-            catch (InvalidDataException)
-            {
-                File.Delete(pluginZipPath);
-                DownloadFile(PluginUrlGlobal, pluginZipPath);
-                ZipFile.ExtractToDirectory(pluginZipPath, DependenciesDir, true);
-            }
-            File.Delete(pluginZipPath);
-
-            foreach (var deucalionDll in Directory.GetFiles(DependenciesDir, "deucalion*.dll"))
-                File.Delete(deucalionDll);
+            DownloadPlugin(pluginZipPath);
         }
+
+        try
+        {
+            ZipFile.ExtractToDirectory(pluginZipPath, DependenciesDir, true);
+        }
+        catch (InvalidDataException)
+        {
+            File.Delete(pluginZipPath);
+            DownloadPlugin(pluginZipPath);
+            ZipFile.ExtractToDirectory(pluginZipPath, DependenciesDir, true);
+        }
+        File.Delete(pluginZipPath);
+
+        foreach (var deucalionDll in Directory.GetFiles(DependenciesDir, "deucalion*.dll"))
+            File.Delete(deucalionDll);
 
         var patcher = new Patcher(PluginVersion, DependenciesDir);
         patcher.MainPlugin();
@@ -86,6 +84,30 @@ public class FetchDependencies
         catch
         {
             return false;
+        }
+    }
+
+    private void DownloadPlugin(string pluginZipPath)
+    {
+        try
+        {
+            DownloadFile(IsChinese ? PluginUrlChinese : PluginUrlGlobal, pluginZipPath);
+        }
+        catch
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "https://api.github.com/repos/ravahn/FFXIV_ACT_Plugin/releases/latest");
+            request.Headers.UserAgent.ParseAdd("IINACT/1.0");
+            using var response = HttpClient.Send(request);
+            response.EnsureSuccessStatusCode();
+
+            using var stream = response.Content.ReadAsStream();
+            var json = JsonNode.Parse(stream);
+            var downloadUrl = json?["assets"]?[0]?["browser_download_url"]?.ToString();
+
+            if (string.IsNullOrEmpty(downloadUrl))
+                throw new Exception("Could not find fallback download URL from GitHub API.");
+
+            DownloadFile(downloadUrl, pluginZipPath);
         }
     }
 
