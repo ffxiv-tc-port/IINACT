@@ -89,7 +89,7 @@ public sealed class Plugin : IDalamudPlugin
             new FetchDependencies.FetchDependencies(Version, PluginInterface.AssemblyLocation.Directory!.FullName,
                                                     false, HttpClient, // TC branch always uses global CDN (iinact.com)
                                                     // 解析依賴換版是 CDN 端說了算、對我們完全靜默的事。
-                                                    // 用 Information 級寫出來（使用者 LogLevel 2 收得到）。
+                                                    // 用 Information 級寫出來（使用者 LogLevel 1 收得到）。
                                                     message => Log.Information(message));
         
         fetchDeps.GetFfxivPlugin();
