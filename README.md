@@ -1,76 +1,16 @@
-![icon](https://github.com/marzent/IINACT/blob/main/images/icon.ico?raw=true)
-
 # IINACT
 
-A [Dalamud](https://github.com/goatcorp/Dalamud) plugin to run the [FFXIV_ACT_Plugin](https://github.com/ravahn/FFXIV_ACT_Plugin) in an [ACT](https://advancedcombattracker.com/)-like enviroment with a heavily modified port of [Overlay Plugin](https://github.com/OverlayPlugin/OverlayPlugin) for modern .NET.
+[IINACT](https://github.com/marzent/IINACT) 的台服移植版：在 Dalamud 內建置一個相容 ACT 的 WebSocket 資料伺服器，讀取戰鬥事件資料供疊加層與紀錄工具使用。**本身不繪製任何疊加層畫面。**
 
-The data source here is only based on [Unscrambler](https://github.com/perchbirdd/Unscrambler) and does not require any extra injection with [Deucalion](https://github.com/ff14wed/deucalion) or network capture with elevated privileges.
+## 功能
 
-This will **not** render overlays by itself, use something like [Browsingway](https://github.com/Styr1x/Browsingway), [Next UI](https://github.com/kaminaris/Next-UI), [hudkit](https://github.com/valarnin/hudkit) (Linux only) or [Bunny HUD](https://github.com/marzent/Bunny-HUD) (macOS only) to display Overlays.
+- **內建 Overlay Plugin**（現代 .NET 移植版）：提供標準 ACT/OverlayPlugin 相容的 WebSocket 服務，可搭配 [Kagerou](https://plusonechiang.github.io/kagerou/overlay/) 等疊加層使用
+- **資料來源**：純讀取遊戲已解析封包，不需要額外注入或提升權限的封包截取
+- **紀錄輸出與 FFLogs Uploader 相容**：紀錄檔存放於「文件」資料夾下的 `IINACT`
+- **台服支援**：Region 固定為 TraditionalChinese、封包金鑰處理已針對台服執行檔調整、預設疊加層清單指向台服在地化的 Kagerou fork
 
+疊加層畫面需另外安裝 [Browsingway](https://github.com/Styr1x/Browsingway)、[Next UI](https://github.com/kaminaris/Next-UI) 等瀏覽器渲染插件顯示。
 
-## Why
+## 授權
 
-- ACT is too inconvenient IMHO for just wanting to have the game data parsed and served via a WebSocket server
-- Drastically more efficent than ACT, in part to .NET 7.0, in part to a more sane log line processing (disk I/O is not blocking LogLineEvents and happening on a separate lower priority thread)
-- Due to the above and running fully inside the game process CPU usage will be orders of magnitude (not exaggerating here) lower when running under Wine compared to network-based capture
-- Uses an ultra fast and low latency WebSocket server based on [NetCoreServer](https://github.com/chronoxor/NetCoreServer)
-- Doesn't use legacy technology that hurts Linux and macOS users
-- Follows the Unix philosophy of just doing one thing and doing it well   
-
-## Installing 
-
-> **Warning**  
-> No support will be provided on any Dalamud official support channel. Please use the [Issues](https://github.com/marzent/IINACT/issues) page or [Discord](https://discord.gg/pcexJC8YPG) for any support requests. Do NOT ask for support on the [XIVLauncher & Dalamud Discord](https://discord.gg/holdshift), as support for 3rd-party plugins is not provided there. 
-
-Install instructions can be found [here](https://www.iinact.com/installation/), but are indentical to any other 3rd-party plugin repository.
-
-## How to build
-
-Just run 
-```
-git clone --recurse-submodules https://github.com/marzent/IINACT.git
-cd IINACT
-dotnet build
-``` 
-on a Linux, macOS or Windows machine with the [.NET 7 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/7.0). 
-
-You will need to be able to reference Dalamud as well, meaning having an install of [XL](https://github.com/goatcorp/FFXIVQuickLauncher) or [XOM](https://github.com/marzent/XIV-on-Mac) on Windows and macOS respectively. On Linux `DALAMUD_HOME` needs to be correctly set (for example `$HOME/.xlcore/dalamud/Hooks/dev`).
-
-## TC (Traditional Chinese) Server Fork
-
-This is a fork targeting the **FFXIV Traditional Chinese (TC) server**.
-
-### Changes from upstream
-
-- **Dalamud API**: Downgraded to API 12 / .NET 9 to match the TC server's Dalamud version
-- **Region**: Hardcoded to `GameRegion.TraditionalChinese`
-- **Language**: Mapped `ClientLanguage.TraditionalChinese` → `Language.TraditionalChinese`
-- **ZoneDownHookManager**: TC-specific packet key handling (bypasses signature scan unavailable in TC binary)
-- **Kagerou overlay**: Default overlay points to a TC-localized fork at [plusonechiang.github.io/kagerou](https://plusonechiang.github.io/kagerou/overlay/)
-
-### Version scheme
-
-`{major}.{api_version}.{runtime_version}.{build}`
-
-Example: `1.12.9.1` = major version 1, Dalamud API 12, .NET 9, build 1
-
-### How to build (TC fork)
-
-```
-git clone --recurse-submodules https://github.com/PlusoneChiang/IINACT.git
-cd IINACT
-dotnet build
-```
-
-Requires the TC version of [XIV-on-Mac (XOM)](https://github.com/marzent/XIV-on-Mac) or equivalent Dalamud API 12 installation.
-
-## FAQ
-
-**Where are my logs?**
-
-- In your Documents folder. For Windows users, `C:\Users\[user]\Documents\IINACT`. For Mac/Linux users, same thing, but relative to your wine prefix.
-
-**Are these logs compatible with FFLogs? Can I use the FFLogs Uploader?**
-
-- Yes! 100% compatible.
+依照原專案授權條款發布，詳見 [LICENSE](LICENSE)。
