@@ -354,7 +354,8 @@ namespace RainbowMage.OverlayPlugin.EventSources
             BuildPartyMemberResults(result, cachedPartyList.alliance4Members, remainingAlliances[3], false);
             BuildPartyMemberResults(result, cachedPartyList.alliance5Members, remainingAlliances[4], false);
 
-            Log(LogLevel.Debug, "party list: {0}", JObject.FromObject(new { party = result }).ToString());
+            // 🔴 Formatting.None：縮排格式一筆就 300 行以上(實機一輪 1,136 筆＝202,529 行，佔全部 log 的 41.5%)，會害 log 輪替吃掉別的量測資料。
+            Log(LogLevel.Debug, "party list: {0}", JObject.FromObject(new { party = result }).ToString(Newtonsoft.Json.Formatting.None));
 
             DispatchAndCacheEvent(JObject.FromObject(new
             {
