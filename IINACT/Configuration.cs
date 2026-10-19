@@ -66,7 +66,13 @@ public class Configuration : IPluginConfiguration
     
     public bool ForceGoogleTts { get; set; }
 
+    // Off: when SAPI can't start, stay silent instead of sending the text to Google.
+    public bool GoogleTtsFallback { get; set; }
+
     public int TtsPlaybackDevice { get; set; } = -1;
+
+    // Off: the watchdog only logs; on: it also restarts parser threads that have exited.
+    public bool ParserWatchdogAutoRecover { get; set; }
 
     public void Initialize(IDalamudPluginInterface pluginInterface)
     {

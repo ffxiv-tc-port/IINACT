@@ -53,8 +53,22 @@
       },
       "Microsoft.Extensions.ObjectPool": {
         "type": "Transitive",
-        "resolved": "10.0.1",
-        "contentHash": "HqAEbtoAhgvH53c54IV5e4vQ60PYvl7Z/WIHsbet+UGGE7n+7dwVNXw1mb9LZlWbsxnupCevvtgIne5P//ZKpQ=="
+        "resolved": "9.0.15",
+        "contentHash": "PgsXqHmnN5HuElQ3T+hfFzzVkq3Lajdw9i+96ru/h4ctHS/Vx4zKTX7Nrzo7TXNFkle0aTFNLhrYDC99g6Uz3w=="
+      },
+      "Microsoft.NETCore.Platforms": {
+        "type": "Transitive",
+        "resolved": "3.1.0",
+        "contentHash": "z7aeg8oHln2CuNulfhiLYxCVMPEwBl3rzicjvIX+4sUuCwvXw5oXQEtbiU2c0z4qYL5L3Kmx0mMA/+t/SbY67w=="
+      },
+      "Microsoft.Win32.Registry": {
+        "type": "Transitive",
+        "resolved": "4.7.0",
+        "contentHash": "KSrRMb5vNi0CWSGG1++id2ZOs/1QhRqROt+qgbEAdQuGjGrFcl4AOl4/exGPUYz2wUnU42nvJqon1T3U0kPXLA==",
+        "dependencies": {
+          "System.Security.AccessControl": "4.7.0",
+          "System.Security.Principal.Windows": "4.7.0"
+        }
       },
       "Microsoft.NETCore.Platforms": {
         "type": "Transitive",
@@ -186,7 +200,7 @@
         "dependencies": {
           "Machina": "[2.3.1.3, )",
           "Machina.FFXIV": "[2.4.7.2, )",
-          "Microsoft.Extensions.ObjectPool": "[10.0.1, )",
+          "Microsoft.Extensions.ObjectPool": "[9.0.15, )",
           "NetCoreServer": "[8.0.7, )",
           "OverlayPlugin.Common": "[1.0.0, )",
           "System.Data.DataSetExtensions": "[4.5.0, )"

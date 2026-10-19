@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using Microsoft.Extensions.ObjectPool;
 
 namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
 {
@@ -23,75 +24,107 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
         }
 
         // Returns a combatant if the combatant is a mob or a PC.
+        private static readonly int selfIdOffset = (int)Marshal.OffsetOf<CombatantMemory>(nameof(CombatantMemory.ID));
+        protected override int SelfIdOffset => selfIdOffset;
+
         protected override unsafe Combatant GetMobFromByteArray(byte[] source, uint mycharID)
+        {
+            return GetMob(source, mycharID, false);
+        }
+
+        protected override Combatant GetMobFromByteArrayWithoutEffects(byte[] source, uint mycharID, ObjectPool<Combatant> recycle)
+        {
+            return GetMob(source, mycharID, true, recycle);
+        }
+
+        private unsafe Combatant GetMob(byte[] source, uint mycharID, bool exceptEffects, ObjectPool<Combatant> recycle = null)
         {
             fixed (byte* p = source)
             {
-                CombatantMemory mem = *(CombatantMemory*)&p[0];
-                ObjectType type = (ObjectType)mem.Type;
-                if (mem.ID == 0 || mem.ID == emptyID)
+                CombatantMemory* mem = (CombatantMemory*)p;
+                if (mem->ID == 0 || mem->ID == emptyID)
                     return null;
             }
-            return GetCombatantFromByteArray(source, mycharID, false);
+            return BuildCombatant(source, mycharID, false, exceptEffects, recycle);
         }
 
         // Will return any kind of combatant, even if not a mob.
         // This function always returns a combatant object, even if empty.
-        protected override unsafe Combatant GetCombatantFromByteArray(byte[] source, uint mycharID, bool isPlayer, bool exceptEffects = false)
+        protected override Combatant GetCombatantFromByteArray(byte[] source, uint mycharID, bool isPlayer, bool exceptEffects = false)
+        {
+            return BuildCombatant(source, mycharID, isPlayer, exceptEffects, null);
+        }
+
+        // 從 recycle 取到的舊物件，每個公開欄位都會被覆寫成和 new 出來的一樣（含 Distance／EffectiveDistance 清成 null）。
+        private unsafe Combatant BuildCombatant(byte[] source, uint mycharID, bool isPlayer, bool exceptEffects, ObjectPool<Combatant> recycle)
         {
             fixed (byte* p = source)
             {
-                CombatantMemory mem = *(CombatantMemory*)&p[0];
+                CombatantMemory* mem = (CombatantMemory*)p;
 
                 if (isPlayer)
                 {
-                    mycharID = mem.ID;
+                    mycharID = mem->ID;
                 }
 
-                Combatant combatant = combatantPool.Get();
-                combatant.Job = mem.Job;
-                combatant.ID = mem.ID;
-                combatant.OwnerID = mem.OwnerID == emptyID ? 0 : mem.OwnerID;
-                combatant.Type = (ObjectType)mem.Type;
+                var name = GetStringFromBytesCached(mem->Name, CombatantMemory.NameBytes);
+                Combatant combatant = recycle?.Get() ?? new Combatant();
+                combatant.Name = name;
+                combatant.Job = mem->Job;
+                combatant.ID = mem->ID;
+                combatant.OwnerID = mem->OwnerID == emptyID ? 0 : mem->OwnerID;
+                combatant.Type = (ObjectType)mem->Type;
                 combatant.MonsterType = 0;
-                combatant.Status = (ObjectStatus)mem.Status;
-                combatant.ModelStatus = (ModelStatus)mem.ModelStatus; // Normalize all possible aggression statuses into the basic 4 ones.
+                combatant.Status = (ObjectStatus)mem->Status;
+                combatant.ModelStatus = (ModelStatus)mem->ModelStatus;
+                // Normalize all possible aggression statuses into the basic 4 ones.
                 combatant.AggressionStatus = 0;
-                combatant.NPCTargetID = mem.NPCTargetID;
-                combatant.RawEffectiveDistance = mem.EffectiveDistance;
-                combatant.PosX = mem.PosX; // Y and Z are deliberately swapped to match FFXIV_ACT_Plugin's data model
-                combatant.PosY = mem.PosZ;
-                combatant.PosZ = mem.PosY;
-                combatant.Heading = mem.Heading;
-                combatant.Radius = mem.Radius; // In-memory there are separate values for PC's current target and NPC's current target
-                combatant.TargetID = (ObjectType)mem.Type == ObjectType.PC ? mem.PCTargetID : mem.NPCTargetID;
-                combatant.CurrentHP = mem.CurrentHP;
-                combatant.MaxHP = mem.MaxHP;
-                combatant.Effects = exceptEffects ? new List<EffectEntry>() : GetEffectEntries(mem.Effects, (ObjectType)mem.Type, mycharID);
-                combatant.BNpcID = mem.BNpcID;
-                combatant.CurrentMP = mem.CurrentMP;
-                combatant.MaxMP = mem.MaxMP;
-                combatant.CurrentGP = mem.CurrentGP;
-                combatant.MaxGP = mem.MaxGP;
-                combatant.CurrentCP = mem.CurrentCP;
-                combatant.MaxCP = mem.MaxCP;
-                combatant.Level = mem.Level;
-                combatant.PCTargetID = mem.PCTargetID;
-                combatant.BNpcNameID = mem.BNpcNameID;
-                combatant.WorldID = mem.WorldID;
-                combatant.CurrentWorldID = mem.CurrentWorldID;
-                combatant.IsCasting1 = mem.IsCasting1;
-                combatant.IsCasting2 = mem.IsCasting2;
-                combatant.CastBuffID = mem.CastBuffID;
-                combatant.CastTargetID = mem.CastTargetID; // Y and Z are deliberately swapped to match FFXIV_ACT_Plugin's data model
-                combatant.CastGroundTargetX = mem.CastGroundTargetX;
-                combatant.CastGroundTargetY = mem.CastGroundTargetZ;
-                combatant.CastGroundTargetZ = mem.CastGroundTargetY;
-                combatant.CastDurationCurrent = mem.CastDurationCurrent;
-                combatant.CastDurationMax = mem.CastDurationMax;
-                combatant.TransformationId = mem.TransformationId;
-                combatant.WeaponId = mem.WeaponId;
-                combatant.Name = FFXIVMemory.GetStringFromBytes(mem.Name, CombatantMemory.NameBytes);
+                combatant.NPCTargetID = mem->NPCTargetID;
+                combatant.RawEffectiveDistance = mem->EffectiveDistance;
+                combatant.PosX = mem->PosX;
+                // Y and Z are deliberately swapped to match FFXIV_ACT_Plugin's data model
+                combatant.PosY = mem->PosZ;
+                combatant.PosZ = mem->PosY;
+                combatant.Heading = mem->Heading;
+                combatant.Radius = mem->Radius;
+                combatant.Distance = null;
+                combatant.EffectiveDistance = null;
+                // In-memory there are separate values for PC's current target and NPC's current target
+                combatant.TargetID = (ObjectType)mem->Type == ObjectType.PC ? mem->PCTargetID : mem->NPCTargetID;
+                combatant.CurrentHP = mem->CurrentHP;
+                combatant.MaxHP = mem->MaxHP;
+                combatant.Effects = exceptEffects
+                    ? (combatant.Effects is { Count: 0 } emptyEffects ? emptyEffects : new List<EffectEntry>())
+                    : GetEffectEntries(mem->Effects, (ObjectType)mem->Type, mycharID);
+
+                combatant.BNpcID = mem->BNpcID;
+                combatant.CurrentMP = mem->CurrentMP;
+                combatant.MaxMP = mem->MaxMP;
+                combatant.CurrentGP = mem->CurrentGP;
+                combatant.MaxGP = mem->MaxGP;
+                combatant.CurrentCP = mem->CurrentCP;
+                combatant.MaxCP = mem->MaxCP;
+                combatant.Level = mem->Level;
+                combatant.PCTargetID = mem->PCTargetID;
+
+                combatant.BNpcNameID = mem->BNpcNameID;
+
+                combatant.WorldID = mem->WorldID;
+                combatant.CurrentWorldID = mem->CurrentWorldID;
+
+                combatant.IsCasting1 = mem->IsCasting1;
+                combatant.IsCasting2 = mem->IsCasting2;
+                combatant.CastBuffID = mem->CastBuffID;
+                combatant.CastTargetID = mem->CastTargetID;
+                // Y and Z are deliberately swapped to match FFXIV_ACT_Plugin's data model
+                combatant.CastGroundTargetX = mem->CastGroundTargetX;
+                combatant.CastGroundTargetY = mem->CastGroundTargetZ;
+                combatant.CastGroundTargetZ = mem->CastGroundTargetY;
+                combatant.CastDurationCurrent = mem->CastDurationCurrent;
+                combatant.CastDurationMax = mem->CastDurationMax;
+
+                combatant.TransformationId = mem->TransformationId;
+                combatant.WeaponId = mem->WeaponId;
                 combatant.IsTargetable =
                     (combatant.ModelStatus == ModelStatus.Visible)
                     && ((combatant.Status == ObjectStatus.NormalActorStatus) || (combatant.Status == ObjectStatus.NormalSubActorStatus));
@@ -239,31 +272,48 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
             // Missing PartyType
         }
 
+        // source points into the caller's pinned copy of the combatant; only valid for this call.
+        // Filter on the raw slot first so EffectEntry is only allocated for kept slots;
+        // output (content and order) must match the old copy-then-filter version exactly.
         protected new unsafe List<EffectEntry> GetEffectEntries(byte* source, ObjectType type, uint mycharID)
         {
-            var result = new List<EffectEntry>();
             int maxEffects = (type == ObjectType.PC) ? 30 : 60;
-            var size = EffectMemory73.Size * maxEffects;
+            var slots = (EffectMemory73*)source;
 
-            var bytes = new byte[size];
-            Marshal.Copy((IntPtr)source, bytes, 0, size);
-
+            int kept = 0;
             for (int i = 0; i < maxEffects; i++)
             {
-                var effect = GetEffectEntryFromByteArray(bytes, i);
+                if (IsListedEffect(&slots[i]))
+                    kept++;
+            }
 
-                if (effect.BuffID > 0 &&
-                    effect.Stack >= 0 &&
-                    effect.Timer >= 0.0f &&
-                    effect.ActorID > 0)
+            var result = new List<EffectEntry>(kept);
+            for (int i = 0; kept > 0 && i < maxEffects; i++)
+            {
+                EffectMemory73* mem = &slots[i];
+                if (!IsListedEffect(mem))
+                    continue;
+
+                result.Add(new EffectEntry()
                 {
-                    effect.isOwner = effect.ActorID == mycharID;
-
-                    result.Add(effect);
-                }
+                    BuffID = mem->BuffID,
+                    Stack = mem->Stack,
+                    Timer = mem->Timer,
+                    ActorID = mem->ActorID,
+                    isOwner = mem->ActorID == mycharID,
+                });
+                kept--;
             }
 
             return result;
+        }
+
+        private static unsafe bool IsListedEffect(EffectMemory73* mem)
+        {
+            return mem->BuffID > 0 &&
+                   mem->Stack >= 0 &&
+                   mem->Timer >= 0.0f &&
+                   mem->ActorID > 0;
         }
 
         protected new unsafe EffectEntry GetEffectEntryFromByteArray(byte[] source, int num = 0)

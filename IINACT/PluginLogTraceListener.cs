@@ -12,9 +12,8 @@ public class PluginLogTraceListener : TraceListener
     {
         if (message is null) return;
         
-        if (category?.Equals("ffxiv_act_plugin", StringComparison.OrdinalIgnoreCase) ?? false)
-            Plugin.Log.Information($"[FFXIV_ACT_PLUGIN] {message}");
-
+        // FFXIV_ACT_Plugin 經由 Trace 送出來的內容，同一句也會走 DataSubscription
+        // 的 ProcessException 以 Debug 再寫一次，所以這裡不再重複寫一份 Information。
         if (category?.Equals("machina", StringComparison.OrdinalIgnoreCase) ?? false)
             Plugin.Log.Information($"[MACHINA] {message}");
         

@@ -41,6 +41,45 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Party
         public PartyListEntry[] alliance3Members;
         public PartyListEntry[] alliance4Members;
         public PartyListEntry[] alliance5Members;
+
+        // 以下給 GetPartyLists(reuse) 重複利用：非公開欄位不進 JSON。段 0＝本隊、1～5＝聯盟各段，每段 8 格。
+        internal const int PoolSections = 6, PoolSlots = 8, NameBytes = 0x40;
+        private PartyListEntry[] pool;
+        private byte[] poolNameBytes;
+        private PartyListEntry[][] partyArrays;
+        private PartyListEntry[][] allianceArrays;
+        private PartyListEntry[] selfArray;
+
+        internal PartyListEntry[] PartyArray(int length)
+        {
+            partyArrays ??= new PartyListEntry[PoolSlots + 1][];
+            return partyArrays[length] ??= new PartyListEntry[length];
+        }
+
+        internal PartyListEntry[] AllianceArray(int section)
+        {
+            allianceArrays ??= new PartyListEntry[PoolSections][];
+            return allianceArrays[section] ??= new PartyListEntry[PoolSlots];
+        }
+
+        internal PartyListEntry[] SelfArray() => selfArray ??= new[] { new PartyListEntry() };
+
+        // 名字只在原始位元組變了才重新解碼；同樣的位元組解出同樣的字串。
+        internal unsafe PartyListEntry PooledEntry(int section, int slot, byte* name)
+        {
+            pool ??= new PartyListEntry[PoolSections * PoolSlots];
+            poolNameBytes ??= new byte[PoolSections * PoolSlots * NameBytes];
+            var index = section * PoolSlots + slot;
+            var entry = pool[index] ??= new PartyListEntry();
+            var now = new ReadOnlySpan<byte>(name, NameBytes);
+            var last = poolNameBytes.AsSpan(index * NameBytes, NameBytes);
+            if (entry.name == null || !now.SequenceEqual(last))
+            {
+                entry.name = FFXIVMemory.GetStringFromBytes(name, NameBytes);
+                now.CopyTo(last);
+            }
+            return entry;
+        }
     }
 
     public abstract class PartyMemory
@@ -80,16 +119,17 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Party
             if (!memory.IsValid())
                 return;
 
-            List<string> fail = new List<string>();
-
             // These addresses aren't pointers, they're static memory structures. Therefore we don't need to resolve nested pointers.
             long instanceAddress = (long)GetGroupManagerAddress();
 
+            // 每次讀隊伍都會走到這裡，位址沒變（平常的情況）時不配置 fail 清單。
+            if (instanceAddress != 0 && instanceAddress == partyInstanceAddress.ToInt64())
+                return;
+
+            List<string> fail = new List<string>();
+
             if (instanceAddress != 0)
             {
-                if (instanceAddress == partyInstanceAddress.ToInt64())
-                    return;
-
                 partyInstanceAddress = new IntPtr(instanceAddress);
             }
             else

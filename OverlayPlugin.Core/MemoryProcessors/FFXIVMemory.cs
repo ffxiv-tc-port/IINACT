@@ -26,6 +26,8 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors
 
         // The "international" version always uses the most recent.
         private static Version globalVersion = new Version(99, 0);
+        // It seems auto version scan, so TC use globalVersion
+        private static Version tcVersion = new Version(99, 0);
         private static Version cnVersion = new Version(6, 2);
         private static Version koVersion = new Version(6, 1);
 
@@ -426,6 +428,8 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors
             Version target;
             if (region == GameRegion.Chinese)
                 target = cnVersion;
+            else if (region == GameRegion.TraditionalChinese)
+                target = tcVersion;
             else if (region == GameRegion.Korean)
                 target = koVersion;
             else

@@ -8,6 +8,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.ObjectPool;
 using RainbowMage.OverlayPlugin.MemoryProcessors.InCombat;
 using RainbowMage.OverlayPlugin.NetworkProcessors;
 using RainbowMage.OverlayPlugin.NetworkProcessors.PacketHelper;
@@ -39,6 +40,10 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
                 // in radians
                 public float DistanceHeading;
                 public ReadOnlyDictionary<FieldInfo, uint> CheckFieldDelay;
+
+                // CheckFieldDelay 的同序陣列：foreach ReadOnlyDictionary 每次都會配置一個裝箱的列舉器。
+                private KeyValuePair<FieldInfo, uint>[] checkFields;
+                public KeyValuePair<FieldInfo, uint>[] CheckFields => checkFields ??= CheckFieldDelay.ToArray();
             }
 
             public static CriteriaData Criteria(bool inCombat)
@@ -167,6 +172,18 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
 
         private Func<string, DateTime, bool> logWriter;
 
+        // 只收 CheckCombatants 自己剛讀到、從沒放進 combatantStateMap 的物件（放進去過的，另一條執行緒可能正拿它當舊值比）。
+        private const int RecycleCapacity = 2048;
+        private readonly ObjectPool<Combatant> recycledCombatants = CreateRecyclePool();
+
+        private static ObjectPool<Combatant> CreateRecyclePool()
+        {
+            return new DefaultObjectPool<Combatant>(new DefaultPooledObjectPolicy<Combatant>(), RecycleCapacity);
+        }
+
+        // 輪詢與封包兩條執行緒都會進 CheckCombatants：各自先搶這一份，沒搶到就新建；清單只在那次呼叫內用。
+        private List<Combatant> spareList;
+
         private CancellationTokenSource cancellationToken;
         private bool _disposed;
 
@@ -247,8 +264,22 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
 
         private void CheckCombatants(DateTime now, params uint[] filter)
         {
-            var combatants = combatantMemoryManager.GetCombatantList();
-            
+            // 這條路徑的比較與輸出都不讀 Effects（IgnoreFieldNames 排除了它），所以不建。
+            var combatants = Interlocked.Exchange(ref spareList, null) ?? new List<Combatant>();
+            combatantMemoryManager.GetCombatantListWithoutEffects(recycledCombatants, combatants);
+            try
+            {
+                CheckCombatantList(now, filter, combatants);
+            }
+            finally
+            {
+                combatants.Clear();
+                Volatile.Write(ref spareList, combatants);
+            }
+        }
+
+        private void CheckCombatantList(DateTime now, uint[] filter, List<Combatant> combatants)
+        {
             Span<uint> combatantIDs = stackalloc uint[combatants.Count];
             var index = 0;
             foreach (var c in combatants) combatantIDs[index++] = c.ID;
@@ -261,6 +292,7 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
                 // If we're only checking specific actor IDs, filter to those
                 if (filter.Length > 0 && !filter.Contains(combatant.ID))
                 {
+                    recycledCombatants.Return(combatant);
                     continue;
                 }
 
@@ -276,17 +308,15 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
                     // It's possible that another thread has already added this combatant since we checked
                     if (combatantStateMap.TryAdd(combatant.ID, state))
                     {
-                        WriteLine(
-                            CombatantMemoryChangeType.Add,
-                            combatant.ID,
-                            string.Join("", CombatantChangeCriteria.AllFields.Select((fi) => FormatFieldChange(fi, combatant, true))));
+                        WriteAddLine(combatant);
                     }
                     continue;
                 }
 
                 var oldCombatant = oldState.combatant;
                 var lastUpdatedDiff = (now - oldState.lastUpdated).TotalMilliseconds;
-                var changed = new HashSet<FieldInfo>();
+                // 沒有變動就保持 null（大多數物件大多數時候都沒變）。
+                HashSet<FieldInfo> changed = null;
 
                 // Check position/heading first since it has a custom delay timing with threshold
                 // and custom behavior (all position data is written)
@@ -319,6 +349,7 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
                     // If any position data has changed, write all position data
                     if (writePosition)
                     {
+                        changed = new HashSet<FieldInfo>();
                         changed.Add(combatant.GetType().GetField(nameof(Combatant.PosX)));
                         changed.Add(combatant.GetType().GetField(nameof(Combatant.PosY)));
                         changed.Add(combatant.GetType().GetField(nameof(Combatant.PosZ)));
@@ -328,18 +359,18 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
 
                 // Check the general case of "if any mapped field has changed since the specified delay duration, queue a change line"
                 // But only if we don't already have a queued change line
-                if (changed.Count == 0)
+                if (changed == null)
                 {
-                    foreach (var fi in criteria.CheckFieldDelay)
+                    foreach (var fi in criteria.CheckFields)
                     {
                         if (fi.Value <= lastUpdatedDiff && !ValueEqual(fi.Key, oldCombatant, combatant))
                         {
-                            changed.Add(fi.Key);
+                            (changed ??= new HashSet<FieldInfo>()).Add(fi.Key);
                         }
                     }
                 }
 
-                if (changed.Count > 0)
+                if (changed != null)
                 {
                     // Check all fields for changes, since we're writing a change line
                     foreach (var fi in CombatantChangeCriteria.AllFields)
@@ -363,16 +394,11 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
                     
                     combatantMemoryManager.ReturnCombatant(oldCombatant);
 
-                    WriteLine(
-                        CombatantMemoryChangeType.Change,
-                        combatant.ID,
-                        string.Join("",
-                            CombatantChangeCriteria.AllFields.Where((field) => changed.Contains(field))
-                            .Select((fi) => FormatFieldChange(fi, combatant))));
+                    WriteChangeLine(combatant, changed);
                 }
                 else
                 {
-                    combatantMemoryManager.ReturnCombatant(combatant);
+                    recycledCombatants.Return(combatant);
                 }
             }
 
@@ -396,7 +422,67 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
             }
         }
 
+        // 與 ValueEqualByReflection 逐欄同義：數值與列舉比值；float 用 Equals（NaN＝NaN、+0＝-0，同 CompareTo）；
+        // 字串用 CompareTo（目前文化；舊值 null 時擲 NullReferenceException，與原本一樣）。
+        private static readonly Dictionary<FieldInfo, Func<Combatant, Combatant, bool>> TypedValueEqual = BuildTypedValueEqual();
+
+        private static Dictionary<FieldInfo, Func<Combatant, Combatant, bool>> BuildTypedValueEqual()
+        {
+            var byName = new Dictionary<string, Func<Combatant, Combatant, bool>>
+            {
+                [nameof(Combatant.OwnerID)] = static (a, b) => a.OwnerID == b.OwnerID,
+                [nameof(Combatant.Type)] = static (a, b) => a.Type == b.Type,
+                [nameof(Combatant.MonsterType)] = static (a, b) => a.MonsterType == b.MonsterType,
+                [nameof(Combatant.Status)] = static (a, b) => a.Status == b.Status,
+                [nameof(Combatant.ModelStatus)] = static (a, b) => a.ModelStatus == b.ModelStatus,
+                [nameof(Combatant.AggressionStatus)] = static (a, b) => a.AggressionStatus == b.AggressionStatus,
+                [nameof(Combatant.TargetID)] = static (a, b) => a.TargetID == b.TargetID,
+                [nameof(Combatant.IsTargetable)] = static (a, b) => a.IsTargetable == b.IsTargetable,
+                [nameof(Combatant.Job)] = static (a, b) => a.Job == b.Job,
+                [nameof(Combatant.Name)] = static (a, b) => a.Name.CompareTo(b.Name) == 0,
+                [nameof(Combatant.MaxHP)] = static (a, b) => a.MaxHP == b.MaxHP,
+                [nameof(Combatant.PosX)] = static (a, b) => a.PosX.Equals(b.PosX),
+                [nameof(Combatant.PosY)] = static (a, b) => a.PosY.Equals(b.PosY),
+                [nameof(Combatant.PosZ)] = static (a, b) => a.PosZ.Equals(b.PosZ),
+                [nameof(Combatant.Heading)] = static (a, b) => a.Heading.Equals(b.Heading),
+                [nameof(Combatant.Radius)] = static (a, b) => a.Radius.Equals(b.Radius),
+                [nameof(Combatant.BNpcID)] = static (a, b) => a.BNpcID == b.BNpcID,
+                [nameof(Combatant.CurrentMP)] = static (a, b) => a.CurrentMP == b.CurrentMP,
+                [nameof(Combatant.MaxMP)] = static (a, b) => a.MaxMP == b.MaxMP,
+                [nameof(Combatant.Level)] = static (a, b) => a.Level == b.Level,
+                [nameof(Combatant.BNpcNameID)] = static (a, b) => a.BNpcNameID == b.BNpcNameID,
+                [nameof(Combatant.WorldID)] = static (a, b) => a.WorldID == b.WorldID,
+                [nameof(Combatant.CurrentWorldID)] = static (a, b) => a.CurrentWorldID == b.CurrentWorldID,
+                [nameof(Combatant.NPCTargetID)] = static (a, b) => a.NPCTargetID == b.NPCTargetID,
+                [nameof(Combatant.PCTargetID)] = static (a, b) => a.PCTargetID == b.PCTargetID,
+                [nameof(Combatant.IsCasting1)] = static (a, b) => a.IsCasting1 == b.IsCasting1,
+                [nameof(Combatant.IsCasting2)] = static (a, b) => a.IsCasting2 == b.IsCasting2,
+                [nameof(Combatant.CastBuffID)] = static (a, b) => a.CastBuffID == b.CastBuffID,
+                [nameof(Combatant.CastTargetID)] = static (a, b) => a.CastTargetID == b.CastTargetID,
+                [nameof(Combatant.CastGroundTargetX)] = static (a, b) => a.CastGroundTargetX.Equals(b.CastGroundTargetX),
+                [nameof(Combatant.CastGroundTargetY)] = static (a, b) => a.CastGroundTargetY.Equals(b.CastGroundTargetY),
+                [nameof(Combatant.CastGroundTargetZ)] = static (a, b) => a.CastGroundTargetZ.Equals(b.CastGroundTargetZ),
+                [nameof(Combatant.CastDurationCurrent)] = static (a, b) => a.CastDurationCurrent.Equals(b.CastDurationCurrent),
+                [nameof(Combatant.CastDurationMax)] = static (a, b) => a.CastDurationMax.Equals(b.CastDurationMax),
+                [nameof(Combatant.TransformationId)] = static (a, b) => a.TransformationId == b.TransformationId,
+                [nameof(Combatant.WeaponId)] = static (a, b) => a.WeaponId == b.WeaponId,
+            };
+            return typeof(Combatant).GetFields()
+                .Where((fi) => byName.ContainsKey(fi.Name))
+                .ToDictionary((fi) => fi, (fi) => byName[fi.Name]);
+        }
+
+        // 沒列在 TypedValueEqual 的欄位（上游日後新增的）退回原本的反射比較。
         private bool ValueEqual(FieldInfo fi, Combatant oldCombatant, Combatant combatant)
+        {
+            if (TypedValueEqual.TryGetValue(fi, out var equal))
+            {
+                return equal(oldCombatant, combatant);
+            }
+            return ValueEqualByReflection(fi, oldCombatant, combatant);
+        }
+
+        private static bool ValueEqualByReflection(FieldInfo fi, Combatant oldCombatant, Combatant combatant)
         {
             var oldVal = fi.GetValue(oldCombatant);
             var newVal = fi.GetValue(combatant);
@@ -453,28 +539,61 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
             return $"|{info.Name}|{value}";
         }
 
+        // 兩個 lambda 放在獨立方法裡，CheckCombatants 的迴圈才不必每輪配置閉包物件。
+        private void WriteAddLine(Combatant combatant)
+        {
+            WriteLine(
+                CombatantMemoryChangeType.Add,
+                combatant.ID,
+                string.Join("", CombatantChangeCriteria.AllFields.Select((fi) => FormatFieldChange(fi, combatant, true))));
+        }
+
+        private void WriteChangeLine(Combatant combatant, HashSet<FieldInfo> changed)
+        {
+            WriteLine(
+                CombatantMemoryChangeType.Change,
+                combatant.ID,
+                string.Join("",
+                    CombatantChangeCriteria.AllFields.Where((field) => changed.Contains(field))
+                    .Select((fi) => FormatFieldChange(fi, combatant))));
+        }
+
         private void WriteLine(CombatantMemoryChangeType type, uint combatantID, string info)
         {
             var line = $"{type}|{combatantID:X8}{info}";
             logWriter(line, ffxiv.GetServerTimestamp());
         }
 
+        private static bool loggedMessageReceivedException = false;
+
         private unsafe void MessageReceived(string id, long epoch, byte[] message)
         {
-            fixed (byte* buffer = message)
+            try
             {
-                var header = Marshal.PtrToStructure<Server_MessageHeader>(new IntPtr(buffer));
-                // Only check if we're not looking at a packet that's for just us
-                if (header.ActorID != header.LoginUserID)
+                fixed (byte* buffer = message)
                 {
-                    DateTime serverTime = ffxiv.EpochToDateTime(epoch);
-                    var delayDefault = CombatantChangeCriteria.Criteria(inCombat).DelayDefault;
-                    // Also only check if we're beyond the default delay for this ID, or if this ID doesn't exist yet
-                    // This check is in place to avoid reading memory every packet, excessively
-                    if (!combatantStateMap.ContainsKey(header.ActorID) || (serverTime - combatantStateMap[header.ActorID].lastUpdated).TotalMilliseconds > delayDefault)
+                    var header = *(Server_MessageHeader*)buffer;
+                    // Only check if we're not looking at a packet that's for just us
+                    if (header.ActorID != header.LoginUserID)
                     {
-                        CheckCombatants(serverTime, header.ActorID);
+                        DateTime serverTime = ffxiv.EpochToDateTime(epoch);
+                        var delayDefault = CombatantChangeCriteria.Criteria(inCombat).DelayDefault;
+                        // Also only check if we're beyond the default delay for this ID, or if this ID doesn't exist yet
+                        // This check is in place to avoid reading memory every packet, excessively
+                        if (!combatantStateMap.ContainsKey(header.ActorID) || (serverTime - combatantStateMap[header.ActorID].lastUpdated).TotalMilliseconds > delayDefault)
+                        {
+                            CheckCombatants(serverTime, header.ActorID);
+                        }
                     }
+                }
+            }
+            catch (Exception e)
+            {
+                // Guard against log spam: this handler runs per incoming packet, so only report once.
+                if (!loggedMessageReceivedException)
+                {
+                    loggedMessageReceivedException = true;
+                    logger?.Log(LogLevel.Error, $"LineCombatant: Exception in MessageReceived: {e}");
                 }
             }
         }

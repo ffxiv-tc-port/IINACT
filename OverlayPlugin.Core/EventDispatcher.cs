@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using RainbowMage.OverlayPlugin.EventSources;
 
 namespace RainbowMage.OverlayPlugin
 {
@@ -134,6 +135,84 @@ namespace RainbowMage.OverlayPlugin
                     {
                         Log(LogLevel.Error, Resources.EventHandlerException, eventType, receiver, ex);
                     }
+                }
+            }
+        }
+
+        // LogLine 專用：排在第一個需要 JObject 的接收者之前的 IRawLogLineReceiver 直接拿原始那一行；
+        // JObject 最多組一次，組好之後的接收者（含 IRawLogLineReceiver）一律拿同一份，與 DispatchEvent 相同
+        // （前面的接收者可能改過它，這時不能再用原始字串代替）。
+        public void DispatchLogLine(string eventType, string rawLine, string[] line, Func<string, string[], JObject> build)
+        {
+            if (!eventFilter.TryGetValue(eventType, out var receivers))
+            {
+                throw new Exception(string.Format(Resources.MissingEventDispatchError, eventType));
+            }
+
+            lock (receivers)
+            {
+                JObject e = null;
+                foreach (var receiver in receivers)
+                {
+                    if (e == null && receiver is not IRawLogLineReceiver)
+                        e = build(rawLine, line);
+
+                    try
+                    {
+                        if (e == null)
+                            ((IRawLogLineReceiver)receiver).HandleRawLogLine(rawLine);
+                        else
+                            receiver.HandleEvent(e);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log(LogLevel.Error, Resources.EventHandlerException, eventType, receiver, ex);
+                    }
+                }
+            }
+        }
+
+        // CombatData 專用，派送規則同 DispatchLogLine；序列化結果所有 IRawCombatDataReceiver 共用一份。
+        // data.CanWriteDirect 為假時與 DispatchEvent(data.ToJObject()) 完全相同。
+        public void DispatchCombatData(string eventType, CombatDataSnapshot data)
+        {
+            if (!data.CanWriteDirect)
+            {
+                DispatchEvent(data.ToJObject());
+                return;
+            }
+
+            if (!eventFilter.TryGetValue(eventType, out var receivers))
+            {
+                throw new Exception(string.Format(Resources.MissingEventDispatchError, eventType));
+            }
+
+            lock (receivers)
+            {
+                try
+                {
+                    JObject e = null;
+                    foreach (var receiver in receivers)
+                    {
+                        if (e == null && receiver is not IRawCombatDataReceiver)
+                            e = data.ToJObject();
+
+                        try
+                        {
+                            if (e == null)
+                                ((IRawCombatDataReceiver)receiver).HandleRawCombatData(data);
+                            else
+                                receiver.HandleEvent(e);
+                        }
+                        catch (Exception ex)
+                        {
+                            Log(LogLevel.Error, Resources.EventHandlerException, eventType, receiver, ex);
+                        }
+                    }
+                }
+                finally
+                {
+                    data.ReleaseFrame();
                 }
             }
         }

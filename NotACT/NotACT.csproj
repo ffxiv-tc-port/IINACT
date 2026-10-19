@@ -36,6 +36,10 @@
         <DalamudLibPath Condition="'$(DalamudLibPath)' == ''">$(HOME)/Library/Application Support/XIV on Mac/dalamud/Hooks/dev/</DalamudLibPath>
     </PropertyGroup>
 
+    <PropertyGroup Condition="'$(DALAMUD_HOME)' != ''">
+        <DalamudLibPath>$(DALAMUD_HOME)/</DalamudLibPath>
+    </PropertyGroup>
+
     <ItemGroup>
         <Reference Include="Dalamud">
             <HintPath>$(DalamudLibPath)Dalamud.dll</HintPath>

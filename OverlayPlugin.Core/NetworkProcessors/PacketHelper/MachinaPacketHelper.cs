@@ -96,12 +96,14 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors.PacketHelper
         public readonly MachinaPacketHelper<PacketType> global;
         public readonly MachinaPacketHelper<PacketType> cn;
         public readonly MachinaPacketHelper<PacketType> kr;
+        public readonly MachinaPacketHelper<PacketType> tc;
 
-        private MachinaRegionalizedPacketHelper(MachinaPacketHelper<PacketType> global, MachinaPacketHelper<PacketType> cn, MachinaPacketHelper<PacketType> kr)
+        private MachinaRegionalizedPacketHelper(MachinaPacketHelper<PacketType> global, MachinaPacketHelper<PacketType> cn, MachinaPacketHelper<PacketType> kr, MachinaPacketHelper<PacketType> tc)
         {
             this.global = global;
             this.cn = cn;
             this.kr = kr;
+            this.tc = tc;
         }
 
         public static bool Create(string packetTypeName, out MachinaRegionalizedPacketHelper<PacketType> packetHelper, string packetOpcodeName = null)
@@ -123,6 +125,10 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors.PacketHelper
                 return false;
             }
             if (!opcodes.TryGetValue(GameRegion.Korean, out var krOpcodes))
+            {
+                return false;
+            }
+            if (!opcodes.TryGetValue(GameRegion.TraditionalChinese, out var tcOpcodes))
             {
                 return false;
             }
@@ -152,12 +158,19 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors.PacketHelper
             {
                 krOpcode = 0;
             }
+            if (!tcOpcodes.TryGetValue(packetOpcodeName, out var tcOpcode))
+            {
+                tcOpcode = 0;
+            }
 
             var global = new MachinaPacketHelper<PacketType>(globalOpcode, MachinaMap.HeaderType_Global, globalPacketType);
             var cn = new MachinaPacketHelper<PacketType>(cnOpcode, MachinaMap.HeaderType_CN, cnPacketType);
             var kr = new MachinaPacketHelper<PacketType>(krOpcode, MachinaMap.HeaderType_KR, krPacketType);
+            // 台服：自己的 opcode、國際服的結構。用到的四種封包兩邊位元組佈局相同，而 Machina 台服版
+            // ActorCast 把 Rotation 宣告成 float，照名字取 UInt16 會每筆封包擲一次例外。
+            var tc = new MachinaPacketHelper<PacketType>(tcOpcode, MachinaMap.HeaderType_Global, globalPacketType);
 
-            packetHelper = new MachinaRegionalizedPacketHelper<PacketType>(global, cn, kr);
+            packetHelper = new MachinaRegionalizedPacketHelper<PacketType>(global, cn, kr, tc);
 
             return true;
         }
@@ -171,6 +184,8 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors.PacketHelper
                     case GameRegion.Global: return global;
                     case GameRegion.Chinese: return cn;
                     case GameRegion.Korean: return kr;
+                    // 台服不可落到 default：那會連 opcode 都用國際服的，撞號時產生假資料行。
+                    case GameRegion.TraditionalChinese: return tc;
 
                     default: return global;
                 }

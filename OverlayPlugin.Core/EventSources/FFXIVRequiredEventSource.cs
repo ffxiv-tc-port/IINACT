@@ -20,6 +20,9 @@ namespace RainbowMage.OverlayPlugin.EventSources
     partial class FFXIVRequiredEventSource : EventSourceBase
     {
         private PartyListsStruct cachedPartyList = new PartyListsStruct();
+        // 只在 partyLock 內讀寫；計時器回呼在執行緒池忙時可能重疊，而兩份隊伍清單會被就地重填。
+        private PartyListsStruct spareParty = new PartyListsStruct();
+        private readonly object partyLock = new object();
 
         private static Dictionary<uint, string> StatusMap = new Dictionary<uint, string>
         {
@@ -354,7 +357,8 @@ namespace RainbowMage.OverlayPlugin.EventSources
             BuildPartyMemberResults(result, cachedPartyList.alliance4Members, remainingAlliances[3], false);
             BuildPartyMemberResults(result, cachedPartyList.alliance5Members, remainingAlliances[4], false);
 
-            Log(LogLevel.Debug, "party list: {0}", JObject.FromObject(new { party = result }).ToString());
+            // Formatting.None：縮排格式一筆就 300 行以上，會害 log 輪替吃掉別的量測資料。
+            Log(LogLevel.Debug, "party list: {0}", JObject.FromObject(new { party = result }).ToString(Newtonsoft.Json.Formatting.None));
 
             DispatchAndCacheEvent(JObject.FromObject(new
             {
@@ -378,7 +382,7 @@ namespace RainbowMage.OverlayPlugin.EventSources
 
         private void BuildPartyMemberResults(List<PartyMember> result, PartyListEntry[] members, PartyType partyType, bool inParty)
         {
-            Log(LogLevel.Debug, $"BuildPartyMemberResults called: members null={(members == null)}, partyType={partyType}, inParty={inParty}");
+            if (members == null) return;
             foreach (var member in members)
             {
                 if (member == null || (member.flags & 0x1) != 0x1)
@@ -480,7 +484,16 @@ namespace RainbowMage.OverlayPlugin.EventSources
             {
                 return;
             }
-            var newParty = partyMemory.GetPartyLists();
+            lock (partyLock)
+            {
+                UpdatePartyLocked();
+            }
+        }
+
+        private void UpdatePartyLocked()
+        {
+            // 填進上上次那份（spareParty 永遠不是 cachedPartyList），比對完才換手，所以兩份不會互相覆寫。
+            var newParty = partyMemory.GetPartyLists(spareParty);
 
             // If we don't have anyone in the party, "correct" it by making sure the current player is in the party
             if (newParty.memberCount == 0)
@@ -491,23 +504,24 @@ namespace RainbowMage.OverlayPlugin.EventSources
                     return;
                 }
                 newParty.memberCount = 1;
-                newParty.partyMembers = new PartyListEntry[] {
-                    new PartyListEntry() {
-                        x = currentPlayer.PosX,
-                        y = currentPlayer.PosY,
-                        z = currentPlayer.PosZ,
-                        objectId = currentPlayer.ID,
-                        currentHP = (uint) currentPlayer.CurrentHP,
-                        maxHP = (uint) currentPlayer.MaxHP,
-                        currentMP = (ushort) currentPlayer.CurrentMP,
-                        maxMP = (ushort) currentPlayer.MaxMP,
-                        homeWorld = currentPlayer.WorldID,
-                        name = currentPlayer.Name,
-                        classJob = currentPlayer.Job,
-                        level = currentPlayer.Level,
-                        flags = 0x13,
-                    },
-                };
+                newParty.partyMembers = newParty.SelfArray();
+                var self = newParty.partyMembers[0];
+                self.x = currentPlayer.PosX;
+                self.y = currentPlayer.PosY;
+                self.z = currentPlayer.PosZ;
+                self.contentId = 0;
+                self.objectId = currentPlayer.ID;
+                self.currentHP = (uint) currentPlayer.CurrentHP;
+                self.maxHP = (uint) currentPlayer.MaxHP;
+                self.currentMP = (ushort) currentPlayer.CurrentMP;
+                self.maxMP = (ushort) currentPlayer.MaxMP;
+                self.territoryType = 0;
+                self.homeWorld = currentPlayer.WorldID;
+                self.name = currentPlayer.Name;
+                self.sex = 0;
+                self.classJob = currentPlayer.Job;
+                self.level = currentPlayer.Level;
+                self.flags = 0x13;
                 newParty.partyLeaderIndex = 0;
                 combatantMemory.ReturnCombatant(currentPlayer);
             }
@@ -543,6 +557,7 @@ namespace RainbowMage.OverlayPlugin.EventSources
             {
                 dispatchEvent = HasPartyCompChanged(cachedPartyList.alliance5Members, newParty.alliance5Members);
             }
+            spareParty = cachedPartyList;
             cachedPartyList = newParty;
             if (dispatchEvent)
             {

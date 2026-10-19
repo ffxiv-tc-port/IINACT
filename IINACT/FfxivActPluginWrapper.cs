@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -51,8 +52,16 @@ public partial class FfxivActPluginWrapper : IDisposable
     private readonly SemaphoreSlim refreshSemaphore = new(0);
     private byte mobDataAge = byte.MaxValue;
 
-    private readonly Thread scanThread;
+    private Thread scanThread;
     private readonly CancellationTokenSource cancellationTokenSource;
+    private bool disposed;
+
+    // 掃描執行緒寫、解析器監看每秒讀；scanBusySince 0＝正在等下一幀。
+    private volatile string scanPhase = "not started";
+    private volatile string? scanExitReason;
+    private long scanBusySince;
+    private long lastNetworkLineTicks;
+    private readonly Queue<string>? parserLogQueue;
 
     private readonly ILogOutput logOutput;
     private readonly ILogFormat logFormat;
@@ -89,6 +98,7 @@ public partial class FfxivActPluginWrapper : IDisposable
 
         logOutput = ffxivActPlugin._dataCollection._logOutput;
         logFormat = ffxivActPlugin._dataCollection._logFormat;
+        parserLogQueue = (logOutput as LogOutput)?._LogQueue;
 
         var scanMemory = (ScanMemory)ffxivActPlugin._dataCollection._scanMemory;
 
@@ -116,11 +126,7 @@ public partial class FfxivActPluginWrapper : IDisposable
         serverTimeProcessor.ServerTime = DateTime.Now;
 
         cancellationTokenSource = new CancellationTokenSource();
-        scanThread = new Thread(() => ScanMemory(cancellationTokenSource.Token))
-        {
-            IsBackground = true
-        };
-        scanThread.Start();
+        scanThread = StartScanThread();
 
         mobArraySize = mobArrayProcessor._internalMmobArray.Length;
         var combatantProcessor = (CombatantProcessor)combatantManager._combatantProcessor;
@@ -141,20 +147,102 @@ public partial class FfxivActPluginWrapper : IDisposable
             Dalamud.Game.ClientLanguage.English => Language.English,
             Dalamud.Game.ClientLanguage.German => Language.German,
             Dalamud.Game.ClientLanguage.French => Language.French,
-            _ => dalamudClientLanguage.ToString() == "ChineseSimplified" ? Language.Chinese : Language.English
+            _ when dalamudClientLanguage.ToString().Contains("Simplified") => Language.Chinese,
+            _ when dalamudClientLanguage.ToString().Contains("Traditional") => Language.TraditionalChinese,
+            _ => Language.TraditionalChinese
         };
 
+    private const int TeardownTimeoutMs = 3000;
+
+    /// <summary>Dispose 之後才有意義。false＝FFXIV_ACT_Plugin 的執行緒可能還在跑，它碰得到的東西都不可以拆。</summary>
+    public bool StoppedCleanly { get; private set; }
+
+    /// <summary>
+    /// 框架執行緒（Dalamud 卸載）呼叫。FFXIV_ACT_Plugin 的關閉放到執行緒池、連同掃描執行緒最多等 3 秒：
+    /// 逾時就讓它在背景自己跑完，遊戲畫面不跟著卡住。
+    /// 沒有乾淨停下時 mobData 刻意不釋放（掃描或解析執行緒可能還在讀它），漏一塊記憶體換不崩。
+    /// </summary>
     public void Dispose()
     {
+        disposed = true;
         cancellationTokenSource.Cancel();
-        cancellationTokenSource.Dispose();
         framework.Update -= MobDataRefresh;
         SetChatMessageLoggingEnabled(false);
         ActGlobals.oFormActMain.BeforeLogLineRead -= OFormActMain_BeforeLogLineRead;
-        ffxivActPlugin.DeInitPlugin();
-        ffxivActPlugin.Dispose();
-        Marshal.FreeHGlobal(mobData);
+
+        var started = Environment.TickCount64;
+        var teardown = Task.Run(() =>
+        {
+            ffxivActPlugin.DeInitPlugin();
+            ffxivActPlugin.Dispose();
+        });
+        var teardownClean = WaitTeardown(teardown);
+        var remaining = (int)Math.Max(0, TeardownTimeoutMs - (Environment.TickCount64 - started));
+        var scanStopped = scanThread.Join(remaining);
+
+        StoppedCleanly = teardownClean && scanStopped;
+        if (StoppedCleanly)
+        {
+            cancellationTokenSource.Dispose();
+            Marshal.FreeHGlobal(mobData);
+            return;
+        }
+
+        Plugin.Log.Information(
+            $"[解析器關閉] {TeardownTimeoutMs / 1000} 秒內沒有乾淨停下（FFXIV_ACT_Plugin 關閉：" +
+            $"{(teardown.IsCompleted ? teardown.IsFaulted ? "擲例外" : "完成" : "仍在執行")}；" +
+            $"掃描執行緒：{(scanStopped ? "已結束" : $"仍在「{scanPhase}」")}）——不再等待，" +
+            "共用記憶體區塊不釋放，避免還在跑的執行緒讀到已釋放的記憶體");
+        if (!teardown.IsCompleted)
+            teardown.ContinueWith(
+                t => Plugin.Log.Information(
+                    $"[解析器關閉] FFXIV_ACT_Plugin 在逾時後才{(t.IsFaulted ? "擲例外結束" : "完成")}，" +
+                    $"距開始關閉 {(Environment.TickCount64 - started) / 1000.0:F1} 秒"),
+                CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
     }
+
+    private static bool WaitTeardown(Task teardown)
+    {
+        try
+        {
+            return teardown.Wait(TeardownTimeoutMs);
+        }
+        catch (AggregateException ex)
+        {
+            Plugin.Log.Warning(ex.InnerException ?? ex, "[解析器關閉] FFXIV_ACT_Plugin 關閉時擲例外");
+            return false;
+        }
+    }
+
+    private Thread StartScanThread()
+    {
+        var thread = new Thread(() => ScanMemory(cancellationTokenSource.Token))
+        {
+            IsBackground = true,
+            Name = "IINACT ScanMemory"
+        };
+        thread.Start();
+        return thread;
+    }
+
+    /// <summary>框架執行緒呼叫。只在舊的掃描執行緒已經結束時才開新的，兩條同時跑會搶同一批處理器。</summary>
+    public bool TryRestartScanThread()
+    {
+        if (disposed || cancellationTokenSource.IsCancellationRequested || scanThread.IsAlive)
+            return false;
+        scanExitReason = null;
+        scanThread = StartScanThread();
+        return true;
+    }
+
+    public ParserHealth GetHealth() => new(
+        ScanThreadExited: !scanThread.IsAlive && !cancellationTokenSource.IsCancellationRequested,
+        ScanExitReason: scanExitReason,
+        ScanBusySince: Volatile.Read(ref scanBusySince),
+        ScanPhase: scanPhase,
+        PendingRefreshes: refreshSemaphore.CurrentCount,
+        LastNetworkLineTicks: Volatile.Read(ref lastNetworkLineTicks),
+        ParserLogQueueLength: parserLogQueue?.Count ?? -1);
 
     public void SetChatMessageLoggingEnabled(bool enabled)
     {
@@ -238,8 +326,21 @@ public partial class FfxivActPluginWrapper : IDisposable
 
     private void OFormActMain_BeforeLogLineRead(bool isImport, LogLineEventArgs logInfo)
     {
+        if (IsNetworkLine(logInfo.logLine))
+            Volatile.Write(ref lastNetworkLineTicks, Environment.TickCount64);
         (logInfo.logLine, logInfo.detectedType) =
             parseMediator.BeforeLogLineRead(isImport, logInfo.detectedTime, logInfo.logLine);
+    }
+
+    // 只看原始行開頭「NN|」的型別碼：20～42 是 FFXIV_ACT_Plugin 從封包產生的行，40（換地圖）來自記憶體。
+    internal static bool IsNetworkLine(string? line)
+    {
+        if (line is null || line.Length < 4) return false;
+        var bar = line[2] == '|' ? 2 : line[3] == '|' ? 3 : -1;
+        if (bar < 0) return false;
+        if (!int.TryParse(line.AsSpan(0, bar), NumberStyles.None, CultureInfo.InvariantCulture, out var type))
+            return false;
+        return type is >= 20 and <= 42 && type != 40;
     }
 
     private void SetupDataSubscription()
@@ -252,9 +353,62 @@ public partial class FfxivActPluginWrapper : IDisposable
         ActGlobals.oFormActMain.ChangeZone(zoneName);
     }
 
+    private const long ProcessExceptionEchoMs = 60 * 1000;
+    private const int ProcessExceptionEchoCap = 2048;
+
+    private sealed class ProcessExceptionEcho
+    {
+        public long Seen;
+        public long Suppressed;
+        public long LastPrintedAt;
+    }
+
+    private static readonly ConcurrentDictionary<string, ProcessExceptionEcho> ProcessExceptionEchoes = new();
+
+    /// <summary>
+    /// FFXIV_ACT_Plugin 的解析執行緒直接呼叫，可能多條並行 —— 計數表必須並行安全，
+    /// 而且鎖內只准算數字（Plugin.Log 是檔案 I/O，一律留到鎖外）。
+    /// 逐字相同的訊息第一次照印，之後每 <see cref="ProcessExceptionEchoMs"/> 毫秒補一行帶計數的，
+    /// 所以「有哪些訊息」與「還在不在發生」兩個訊號都保得住。
+    /// </summary>
     private static void OnProcessException(DateTime timestamp, string text)
     {
-        Plugin.Log.Debug($"[FFXIV_ACT_Plugin] {text}");
+        if (string.IsNullOrEmpty(text)) return;
+
+        if (!ProcessExceptionEchoes.TryGetValue(text, out var echo))
+        {
+            // 上限只是防爆：滿了就退回照印不去重——寧可吵，也不要靜默漏掉訊息。
+            if (ProcessExceptionEchoes.Count >= ProcessExceptionEchoCap)
+            {
+                Plugin.Log.Debug($"[FFXIV_ACT_Plugin] {text}");
+                return;
+            }
+
+            echo = ProcessExceptionEchoes.GetOrAdd(text, _ => new ProcessExceptionEcho());
+        }
+
+        long repeats;
+        lock (echo)
+        {
+            var now = Environment.TickCount64;
+            if (echo.Seen++ == 0)
+            {
+                echo.LastPrintedAt = now;
+                repeats = 0;
+            }
+            else
+            {
+                echo.Suppressed++;
+                if (now - echo.LastPrintedAt < ProcessExceptionEchoMs) return;
+                echo.LastPrintedAt = now;
+                repeats = echo.Suppressed;
+                echo.Suppressed = 0;
+            }
+        }
+
+        Plugin.Log.Debug(repeats == 0
+                             ? $"[FFXIV_ACT_Plugin] {text}"
+                             : $"[FFXIV_ACT_Plugin]（{ProcessExceptionEchoMs / 1000} 秒內又重複 {repeats} 次）{text}");
     }
 
     [SuppressGCTransition]
@@ -309,24 +463,45 @@ public partial class FfxivActPluginWrapper : IDisposable
         {
             try
             {
+                scanPhase = "waiting for a frame";
                 refreshSemaphore.Wait(token);
-                serverTimeProcessor.ServerTime = GameServerTime.CurrentServerTime;
+                Volatile.Write(ref scanBusySince, Environment.TickCount64);
+                try
+                {
+                    scanPhase = "server time";
+                    serverTimeProcessor.ServerTime = GameServerTime.CurrentServerTime;
 
-                var zoneId = zoneMapProcessor.ZoneID;
-                zoneMapProcessor.Refresh();
-                if (zoneMapProcessor.ZoneID == 0)
-                    continue;
+                    var zoneId = zoneMapProcessor.ZoneID;
+                    scanPhase = "zone refresh";
+                    zoneMapProcessor.Refresh();
+                    if (zoneMapProcessor.ZoneID == 0)
+                        continue;
 
-                if (zoneId != zoneMapProcessor.ZoneID)
-                    combatantManager.Rescan();
-                else
-                    combatantManager.Refresh();
+                    if (zoneId != zoneMapProcessor.ZoneID)
+                    {
+                        scanPhase = "combatant rescan (zone changed)";
+                        combatantManager.Rescan();
+                    }
+                    else
+                    {
+                        scanPhase = "combatant refresh";
+                        combatantManager.Refresh();
+                    }
 
-                playerProcessor.Refresh();
-                partyProcessor.Refresh();
+                    scanPhase = "player refresh";
+                    playerProcessor.Refresh();
+                    scanPhase = "party refresh";
+                    partyProcessor.Refresh();
+                }
+                finally
+                {
+                    Volatile.Write(ref scanBusySince, 0);
+                }
             }
             catch (Exception ex) when (ex is ThreadAbortException or OperationCanceledException or ObjectDisposedException)
             {
+                if (!token.IsCancellationRequested)
+                    scanExitReason = $"{ex.GetType().Name}（在「{scanPhase}」）: {ex.Message}";
                 return;
             }
             catch (Exception ex)

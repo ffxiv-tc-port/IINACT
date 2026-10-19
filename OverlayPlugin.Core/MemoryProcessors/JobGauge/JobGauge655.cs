@@ -66,7 +66,8 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.JobGauge
             var rawData = memory.GetByteArray(jobGaugeAddress, sizeof(JobGaugeManager));
             fixed (byte* buffer = rawData)
             {
-                return (JobGaugeManager)Marshal.PtrToStructure(new IntPtr(buffer), typeof(JobGaugeManager));
+                // 只有固定大小的數值欄位：直接複製與 Marshal 逐位元組相同、不裝箱。
+                return *(JobGaugeManager*)buffer;
             }
         }
     }

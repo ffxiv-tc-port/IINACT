@@ -8,6 +8,7 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors
 {
     class LineMapEffect : LineBaseCustom<
             Server_MessageHeader_Global, LineMapEffect.MapEffect_v62,
+            Server_MessageHeader_TC, LineMapEffect.MapEffect_v62,
             Server_MessageHeader_CN, LineMapEffect.MapEffect_v62,
             Server_MessageHeader_KR, LineMapEffect.MapEffect_v62>
     {
@@ -333,16 +334,19 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors
         private readonly ILogger logger;
         private RegionalizedPacketHelper<
             Server_MessageHeader_Global, LineMapEffect.MapEffect4_v72,
+            Server_MessageHeader_TC, LineMapEffect.MapEffect4_v72,
             Server_MessageHeader_CN, LineMapEffect.MapEffect4_v72,
             Server_MessageHeader_KR, LineMapEffect.MapEffect4_v72> packetHelper_4;
 
         private RegionalizedPacketHelper<
             Server_MessageHeader_Global, LineMapEffect.MapEffect8_v72,
+            Server_MessageHeader_TC, LineMapEffect.MapEffect8_v72,
             Server_MessageHeader_CN, LineMapEffect.MapEffect8_v72,
             Server_MessageHeader_KR, LineMapEffect.MapEffect8_v72> packetHelper_8;
 
         private RegionalizedPacketHelper<
             Server_MessageHeader_Global, LineMapEffect.MapEffect12_v72,
+            Server_MessageHeader_TC, LineMapEffect.MapEffect12_v72,
             Server_MessageHeader_CN, LineMapEffect.MapEffect12_v72,
             Server_MessageHeader_KR, LineMapEffect.MapEffect12_v72> packetHelper_12;
 
@@ -355,16 +359,19 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors
 
             packetHelper_4 = RegionalizedPacketHelper<
             Server_MessageHeader_Global, LineMapEffect.MapEffect4_v72,
+            Server_MessageHeader_TC, LineMapEffect.MapEffect4_v72,
             Server_MessageHeader_CN, LineMapEffect.MapEffect4_v72,
             Server_MessageHeader_KR, LineMapEffect.MapEffect4_v72>.CreateFromOpcodeConfig(opcodeConfig, $"{MachinaPacketName}4");
 
             packetHelper_8 = RegionalizedPacketHelper<
             Server_MessageHeader_Global, LineMapEffect.MapEffect8_v72,
+            Server_MessageHeader_TC, LineMapEffect.MapEffect8_v72,
             Server_MessageHeader_CN, LineMapEffect.MapEffect8_v72,
             Server_MessageHeader_KR, LineMapEffect.MapEffect8_v72>.CreateFromOpcodeConfig(opcodeConfig, $"{MachinaPacketName}8");
 
             packetHelper_12 = RegionalizedPacketHelper<
             Server_MessageHeader_Global, LineMapEffect.MapEffect12_v72,
+            Server_MessageHeader_TC, LineMapEffect.MapEffect12_v72,
             Server_MessageHeader_CN, LineMapEffect.MapEffect12_v72,
             Server_MessageHeader_KR, LineMapEffect.MapEffect12_v72>.CreateFromOpcodeConfig(opcodeConfig, $"{MachinaPacketName}12");
         }
@@ -383,6 +390,7 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors
 
         protected bool MessageReceivedSubHandler<T>(RegionalizedPacketHelper<
             Server_MessageHeader_Global, T,
+            Server_MessageHeader_TC, T,
             Server_MessageHeader_CN, T,
             Server_MessageHeader_KR, T> helper, long epoch, byte[] message) where T : unmanaged, IMapEffectPacket, IPacketStruct
         {
@@ -400,6 +408,13 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors
                 case GameRegion.Global:
                     {
                         if (!helper.global.ToStructs(message, out var header, out var packet))
+                            return false;
+                        WriteLinesFor(epoch, packet.instanceContentID, packet.count, packet.flags1, packet.flags2, packet.indexes);
+                        return true;
+                    }
+                case GameRegion.TraditionalChinese:
+                    {
+                        if (!helper.tc.ToStructs(message, out var header, out var packet))
                             return false;
                         WriteLinesFor(epoch, packet.instanceContentID, packet.count, packet.flags1, packet.flags2, packet.indexes);
                         return true;

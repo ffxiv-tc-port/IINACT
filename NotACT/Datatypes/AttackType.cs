@@ -195,7 +195,7 @@ public class AttackType : IComparable, IEquatable<AttackType>, IComparable<Attac
             try
             {
                 _damage = Items.Where(masterSwing => (long)masterSwing.Damage > 0).Aggregate(0L,
-                    (current, masterSwing) => (long)(current + masterSwing.Damage));
+                    (current, masterSwing) => Dnum.AddAsDnum(current, masterSwing.Damage.Number));
             }
             catch (InvalidOperationException)
             {
@@ -270,7 +270,7 @@ public class AttackType : IComparable, IEquatable<AttackType>, IComparable<Attac
 
             var swings = 0;
             foreach (var t in Items)
-                if (t.Damage != Dnum.Death)
+                if (t.Damage != Dnum.DeathComparand)
                     swings++;
                 else if (Type == ActGlobals.Trans["specialAttackTerm-killing"]) swings++;
 
@@ -286,7 +286,7 @@ public class AttackType : IComparable, IEquatable<AttackType>, IComparable<Attac
         {
             if (missesCached) return cachedMisses;
 
-            var misses = Items.Count(t => t.Damage == Dnum.Miss);
+            var misses = Items.Count(t => t.Damage == Dnum.MissComparand);
             cachedMisses = misses;
             missesCached = true;
             return misses;
@@ -299,7 +299,7 @@ public class AttackType : IComparable, IEquatable<AttackType>, IComparable<Attac
         {
             if (blockedCached) return cachedBlocked;
 
-            var blocked = Items.Count(masterSwing => (long)masterSwing.Damage < -1 && masterSwing.Damage != Dnum.Death);
+            var blocked = Items.Count(masterSwing => (long)masterSwing.Damage < -1 && masterSwing.Damage != Dnum.DeathComparand);
             cachedBlocked = blocked;
             blockedCached = true;
             return blocked;

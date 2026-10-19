@@ -3,6 +3,7 @@ using System.Reflection;
 using Dalamud.Game;
 using Dalamud.Game.Command;
 using Dalamud.Interface.ImGuiFileDialog;
+using Dalamud.Interface.ImGuiNotification;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
@@ -39,15 +40,17 @@ public sealed class Plugin : IDalamudPlugin
     private TextToSpeechProvider TextToSpeechProvider { get; }
     private MainWindow MainWindow { get; }
     internal FileDialogManager FileDialogManager { get; }
-    private ZoneDownHookManager ZoneDownHookManager { get; }
+    private ZoneDownHookManager? ZoneDownHookManager { get; }
     private IpcProviders IpcProviders { get; }
 
     private FfxivActPluginWrapper FfxivActPluginWrapper { get; }
+    internal ParserWatchdog ParserWatchdog { get; }
     private RainbowMage.OverlayPlugin.PluginMain OverlayPlugin { get; set; }
     private RainbowMage.OverlayPlugin.WebSocket.ServerController? WebSocketServer { get; set; }
     internal string OverlayPluginStatus => OverlayPlugin.Status;
     private PluginLogTraceListener PluginLogTraceListener { get; }
     private HttpClient HttpClient { get; }
+    private RainbowMage.OverlayPlugin.ChatEcho ChatEcho { get; }
 
     public Plugin(IDalamudPluginInterface pluginInterface,
                   ICommandManager commandManager,
@@ -59,7 +62,8 @@ public sealed class Plugin : IDalamudPlugin
                   IPluginLog pluginLog,
                   IGameInteropProvider gameInteropProvider,
                   ISigScanner sigScanner,
-                  INotificationManager notificationManager)
+                  INotificationManager notificationManager,
+                  IObjectTable objectTable)
     {
         PluginInterface = pluginInterface;
         CommandManager = commandManager;
@@ -72,6 +76,9 @@ public sealed class Plugin : IDalamudPlugin
         SigScanner = sigScanner;
         NotificationManager = notificationManager;
         Log = pluginLog;
+        ChatEcho = new RainbowMage.OverlayPlugin.ChatEcho(chatGui, framework, clientState, objectTable);
+
+        Localization.Init(PluginInterface.AssemblyLocation.Directory?.FullName);
 
         OpcodeManager.Instance.SetRegion(GameRegion.TraditionalChinese);
 
@@ -85,7 +92,16 @@ public sealed class Plugin : IDalamudPlugin
         
         var fetchDeps =
             new FetchDependencies.FetchDependencies(Version, PluginInterface.AssemblyLocation.Directory!.FullName,
-                                                    false, HttpClient);
+                                                    false, HttpClient, // TC branch always uses global CDN (iinact.com)
+                                                    // 解析依賴換版要看得見：要使用者回報的診斷。
+                                                    message => Log.Information(message),
+                                                    message => Log.Warning(message),
+                                                    message => NotificationManager.AddNotification(new Notification
+                                                    {
+                                                        Content = message,
+                                                        Title = "IINACT",
+                                                        Type = NotificationType.Warning,
+                                                    }));
         
         fetchDeps.GetFfxivPlugin();
         
@@ -102,6 +118,7 @@ public sealed class Plugin : IDalamudPlugin
         Advanced_Combat_Tracker.ActGlobals.oFormActMain.LogFilePath = Configuration.LogFilePath;
 
         FfxivActPluginWrapper = new FfxivActPluginWrapper(Configuration, DataManager.Language, ChatGui, Framework, Condition);
+        ParserWatchdog = new ParserWatchdog(FfxivActPluginWrapper, () => ZoneDownHookManager, Condition, ClientState, ChatGui, Configuration);
         Task.Run(() => NetworkLogCleanup.Cleanup(Configuration));
         OverlayPlugin = InitOverlayPlugin();
 
@@ -113,12 +130,12 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(MainWindowCommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Displays the IINACT main window"
+            HelpMessage = "Displays the IINACT main window".Loc()
         });
 
         CommandManager.AddHandler(EndEncCommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Ends the current encounter IINACT is parsing"
+            HelpMessage = "Ends the current encounter IINACT is parsing".Loc()
         });
 
         PluginInterface.UiBuilder.Draw += DrawUI;
@@ -133,17 +150,27 @@ public sealed class Plugin : IDalamudPlugin
         ClientState.LeavePvP += LeavePvP;
 
         ZoneDownHookManager = createZoneDownHookManager.Result;
+        Framework.Update += ParserWatchdog.Tick;
     }
 
     public void Dispose()
     {
+        Framework.Update -= ParserWatchdog.Tick;
         ClientState.EnterPvP -= EnterPvP;
         ClientState.LeavePvP -= LeavePvP;
         IpcProviders.Dispose();
+        ChatEcho.Dispose();
         ZoneDownHookManager.Dispose();
         
         FfxivActPluginWrapper.Dispose();
+        if (!FfxivActPluginWrapper.StoppedCleanly)
+        {
+            DisposeFrameworkSideOnly();
+            return;
+        }
+
         OverlayPlugin.DeInitPlugin();
+        TextToSpeechProvider.Dispose();
         Trace.Listeners.Remove(PluginLogTraceListener);
 
         WindowSystem.RemoveAllWindows();
@@ -154,6 +181,25 @@ public sealed class Plugin : IDalamudPlugin
         CommandManager.RemoveHandler(EndEncCommandName);
 
         Advanced_Combat_Tracker.ActGlobals.Dispose();
+    }
+
+    // FFXIV_ACT_Plugin 沒停下：它的執行緒與它觸發的事件處理器碰得到的（OverlayPlugin、NotACT 與全域、
+    // 語音、Trace 監聽）全部留著，否則它們之後撞到 null 或已關閉的物件會在自己的執行緒上擲未處理例外＝遊戲結束。
+    // 只拆框架執行緒上、那些執行緒碰不到的 Dalamud 端東西。
+    private void DisposeFrameworkSideOnly()
+    {
+        WindowSystem.RemoveAllWindows();
+        MainWindow.Dispose();
+        CommandManager.RemoveHandler(MainWindowCommandName);
+        CommandManager.RemoveHandler(EndEncCommandName);
+
+        Log.Warning(
+            "[卸載] IINACT 這次沒能乾淨卸載：解析元件 FFXIV_ACT_Plugin 沒有在時限內停下，它的執行緒可能還在跑。" +
+            "為了不讓那些執行緒碰到已清掉的東西而讓遊戲結束，以下刻意留著不拆：" +
+            "OverlayPlugin（含 WebSocket 伺服器，連接埠仍被佔用、疊加層可能停在舊資料）、" +
+            "ACT 相容層（FormActMain 與它的讀行／寫檔／戰鬥動作執行緒、ActGlobals 全域）、" +
+            "FFXIV_ACT_Plugin 本身與它的事件訂閱、共用記憶體區塊、文字轉語音、Trace 監聽。" +
+            "這份 IINACT 會一直留在記憶體裡；方便時請重開遊戲（這之前重新載入 IINACT，疊加層的連接埠可能被舊的佔住）。");
     }
 
     private RainbowMage.OverlayPlugin.PluginMain InitOverlayPlugin()
@@ -167,6 +213,9 @@ public sealed class Plugin : IDalamudPlugin
         container.Register(HttpClient);
         container.Register(FileDialogManager);
         container.Register(PluginInterface);
+        // 戰鬥對象記憶體用它從遊戲碼判斷版面世代（CharacterLayoutFingerprint）。
+        container.Register<ISigScanner>(SigScanner);
+        container.Register(ChatEcho);
 
         var overlayPlugin = new RainbowMage.OverlayPlugin.PluginMain(
             PluginInterface.AssemblyLocation.Directory!.FullName, logger, container);

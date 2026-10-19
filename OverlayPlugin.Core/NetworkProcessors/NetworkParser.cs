@@ -23,12 +23,14 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors
 
         private static FFXIVRepository ffxiv;
         private GameRegion? currentRegion;
+        private ILogger logger;
+        private static bool loggedParseException = false;
 
         private const string machinaPacketName = "ActorControl";
 
         public NetworkParser(TinyIoCContainer container)
         {
-            var logger = container.Resolve<ILogger>();
+            logger = container.Resolve<ILogger>();
 
             ffxiv = ffxiv ?? container.Resolve<FFXIVRepository>();
             ffxiv.RegisterNetworkParser(Parse);
@@ -50,26 +52,39 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors
 
         private unsafe void Parse(string id, long epoch, byte[] message)
         {
-            if (actorControlPacketHelper == null)
-                return;
-
-            if (currentRegion == null)
-                currentRegion = ffxiv.GetMachinaRegion();
-
-            if (currentRegion == null)
-                return;
-
-            MachinaPacketHelper<ActorControlPacket> helper = (MachinaPacketHelper<ActorControlPacket>)actorControlPacketHelper[currentRegion.Value];
-
-            if (helper.ToStructs(message, out var header, out var packet))
+            try
             {
-                var category = packet.Get<Server_ActorControlCategory>("category");
-                if (category != Server_ActorControlCategory.StatusUpdate) return;
+                if (actorControlPacketHelper == null)
+                    return;
 
-                var actorID = header.ActorID;
-                var param1 = packet.Get<UInt32>("param1");
+                if (currentRegion == null)
+                    currentRegion = ffxiv.GetMachinaRegion();
 
-                OnOnlineStatusChanged?.Invoke(null, new OnlineStatusChangedArgs(actorID, param1));
+                if (currentRegion == null)
+                    return;
+
+                MachinaPacketHelper<ActorControlPacket> helper = (MachinaPacketHelper<ActorControlPacket>)actorControlPacketHelper[currentRegion.Value];
+
+                if (helper.ToStructs(message, out var header, out var packet))
+                {
+                    var category = packet.Get<Server_ActorControlCategory>("category");
+                    if (category != Server_ActorControlCategory.StatusUpdate) return;
+
+                    var actorID = header.ActorID;
+                    var param1 = packet.Get<UInt32>("param1");
+
+                    OnOnlineStatusChanged?.Invoke(null, new OnlineStatusChangedArgs(actorID, param1));
+                }
+            }
+            catch (Exception e)
+            {
+                // Guard against log spam: a malformed/unexpected packet could otherwise recur on every
+                // incoming packet and flood the log, so only report this once.
+                if (!loggedParseException)
+                {
+                    loggedParseException = true;
+                    logger?.Log(LogLevel.Error, $"NetworkParser: Exception while parsing packet: {e}");
+                }
             }
         }
     }

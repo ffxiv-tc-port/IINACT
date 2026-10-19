@@ -52,6 +52,10 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors
         private int exceptionCount = 0;
         private const int maxExceptionsLogged = 3;
 
+        // TC fork: ensures the "no opcodes for this game version" explanation is emitted exactly
+        // once, independently of the maxExceptionsLogged budget above.
+        private bool loggedMissingVersionWarning = false;
+
         public OverlayPluginLogLineConfig(TinyIoCContainer container)
         {
             logger = container.Resolve<ILogger>();
@@ -111,7 +115,31 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors
                 else
                 {
                     if (repository.GetMachinaRegion().ToString() == machinaRegion)
-                        LogWarning($"No {opcodeType} opcodes for game region {machinaRegion}, version {version}");
+                    {
+                        // TC fork: log one complete, actionable warning (outside the shared maxExceptionsLogged budget,
+                        // which would truncate it to a few unexplained copies) and keep the per-opcode detail at Debug level.
+                        if (!loggedMissingVersionWarning)
+                        {
+                            loggedMissingVersionWarning = true;
+                            var knownVersions = regionOpcodes.Keys.Count > 0
+                                ? string.Join(", ", regionOpcodes.Keys)
+                                : "(none)";
+                            logger.Log(LogLevel.Warning,
+                                $"找不到對應的 {opcodeType} opcode:遊戲區域 {machinaRegion}、版本 {version}。" +
+                                $"目前只有這些版本的 opcode 資料:{knownVersions}。" +
+                                "因此 OverlayPlugin 的自訂網路 log line 全部停用" +
+                                "(MapEffect、NpcYell、Countdown、CountdownCancel、RSVData、CEDirector、" +
+                                "BattleTalk2、ActorMove、ActorSetPos、SpawnNpcExtra)," +
+                                "依賴這些 log line 的懸浮視窗與 cactbot 觸發器不會被觸發。" +
+                                "傷害/治療量的統計解析走 FFXIV_ACT_Plugin 與 Machina 的 opcode 表," +
+                                "是否正常請看同一次載入的 [ZoneDownHookManager] 那幾行。" +
+                                "opcode 刻意不沿用舊版遊戲的數值:它每次改版都會重新洗牌," +
+                                "用錯的 opcode 會產生錯誤的 log line,比不產生更糟。" +
+                                "等 opcodes.jsonc 補上這個遊戲版本的資料後就會自動恢復。");
+                        }
+                        logger.Log(LogLevel.Debug,
+                            $"[opcodes] disabled: no {opcodeType} opcode for {machinaRegion}/{version}: {name}");
+                    }
                 }
             }
             else

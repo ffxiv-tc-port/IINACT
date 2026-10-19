@@ -162,54 +162,53 @@
         }
     },
     "TraditionalChinese": {
-        "2026.06.15.0000.0000": {
-            // Version: 7.15, but client structs 7.2
-            "CountdownCancel": {
-                "opcode": 726,
-                "size": 0
-            },
-            "NpcYell": {
-                "opcode": 225,
-                "size": 0
-            },
+        "2026.09.14.0000.0000": {
+            // TC 7.25; exact match on ffxivgame.ver. Derived offline from the 7.25 client
+            // (handler semantics + recorded payload sizes, cross-checked against packet-type order);
+            // derivation is in the IINACT commit message. CEDirector is deliberately absent:
+            // not identified for 7.25, so only that line stays off. Countdown/CountdownCancel use the v730 layout.
             "MapEffect": {
-                "opcode": 445,
-                "size": 0
-            },
-            "ActorSetPos": {
-                "opcode": 156,
-                "size": 0
-            },
-            "Countdown": {
-                "opcode": 253,
-                "size": 0
-            },
-            "RSVData": {
-                "opcode": 742,
-                "size": 0
-            },
-            "MapEffect12": {
-                "opcode": 509,
-                "size": 0
-            },
-            "ActorMove": {
-                "opcode": 878,
-                "size": 0
-            },
-            "CEDirector": {
-                "opcode": 967,
+                "opcode": 593,
                 "size": 0
             },
             "MapEffect4": {
-                "opcode": 938,
-                "size": 0
-            },
-            "BattleTalk2": {
-                "opcode": 270,
+                "opcode": 549,
                 "size": 0
             },
             "MapEffect8": {
-                "opcode": 809,
+                "opcode": 369,
+                "size": 0
+            },
+            "MapEffect12": {
+                "opcode": 345,
+                "size": 0
+            },
+            "RSVData": {
+                "opcode": 834,
+                "size": 0
+            },
+            "NpcYell": {
+                "opcode": 845,
+                "size": 0
+            },
+            "BattleTalk2": {
+                "opcode": 540,
+                "size": 0
+            },
+            "Countdown": {
+                "opcode": 336,
+                "size": 0
+            },
+            "CountdownCancel": {
+                "opcode": 743,
+                "size": 0
+            },
+            "ActorMove": {
+                "opcode": 553,
+                "size": 0
+            },
+            "ActorSetPos": {
+                "opcode": 633,
                 "size": 0
             }
         }

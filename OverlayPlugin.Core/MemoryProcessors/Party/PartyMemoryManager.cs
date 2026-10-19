@@ -7,6 +7,9 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Party
     public interface IPartyMemory : IVersionedMemory
     {
         PartyListsStruct GetPartyLists();
+
+        // reuse 非 null 時就地填好並回傳它；呼叫端必須已不再需要它的內容。
+        PartyListsStruct GetPartyLists(PartyListsStruct reuse);
     }
 
     class PartyMemoryManager : IPartyMemory
@@ -67,6 +70,15 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Party
                 return new PartyListsStruct();
             }
             return memory.GetPartyLists();
+        }
+
+        public PartyListsStruct GetPartyLists(PartyListsStruct reuse)
+        {
+            if (!IsValid())
+            {
+                return new PartyListsStruct();
+            }
+            return memory.GetPartyLists(reuse);
         }
     }
 }

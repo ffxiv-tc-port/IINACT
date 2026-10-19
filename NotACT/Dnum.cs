@@ -22,6 +22,20 @@ public class Dnum : IComparable
     public static Dnum Death => -10L;
     public static Dnum ThreatPosition => -11L;
 
+    // 只在 NotACT 內部拿來做 ==／!= 比較、永不外流：比較結果與每次新建的 Death／Miss 相同，省掉每一下招式一個物件。
+    internal static readonly Dnum DeathComparand = Death;
+    internal static readonly Dnum MissComparand = Miss;
+
+    // 與 (long)(a + b)（a 先隱含轉成 Dnum，再走下面的 operator +）相同，但不配置兩個 Dnum；
+    // 隱含轉換把小於 -10 的 a 變成 -9，兩者都是負數、走同一個分支，所以不必另外轉。
+    internal static long AddAsDnum(long a, long b)
+    {
+        if (a > -1 && b > -1) return a + b;
+        if (a < 0 && b >= 0) return b;
+        if (b < 0 && a >= 0) return a;
+        return 0L;
+    }
+
     public long Number { get; }
 
     public string DamageString

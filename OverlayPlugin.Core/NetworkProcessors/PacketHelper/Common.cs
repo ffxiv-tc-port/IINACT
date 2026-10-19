@@ -40,6 +40,16 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors.PacketHelper
     }
 
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public struct Server_MessageHeader_TC : IHeaderStruct
+    {
+        public Server_MessageHeader header;
+
+        public uint ActorID => header.ActorID;
+
+        public uint Opcode => header.MessageType;
+    }
+
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct Server_MessageHeader_CN : IHeaderStruct
     {
         public Server_MessageHeader header;

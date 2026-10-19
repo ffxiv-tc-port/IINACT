@@ -1,4 +1,5 @@
 ﻿using System.Collections.Immutable;
+using System.Runtime.InteropServices;
 
 namespace Advanced_Combat_Tracker;
 
@@ -16,6 +17,8 @@ public class EncounterData
     public static Dictionary<string, ColumnDef> ColumnDefs = new();
 
     private bool alliesCached;
+
+    private int changeCount;
 
     private DateTime alliesLastCall = DateTime.Now;
 
@@ -115,7 +118,23 @@ public class EncounterData
 
     public ZoneData Parent { get; set; }
 
-    public string CharName { get; set; }
+    // 遭遇內容（招式、隊友、時間、標題、名字、進行中與否）每變一次就加一，一律在變更做完之後才加：
+    // 先讀它再讀內容的人，讀到一半被改也一定會在下一次讀到不同的值。不涵蓋直接改 Items／StartTimes 這些清單的內容。
+    public int ChangeCount => Volatile.Read(ref changeCount);
+
+    private void MarkChanged() => Interlocked.Increment(ref changeCount);
+
+    private string charName;
+
+    public string CharName
+    {
+        get => charName;
+        set
+        {
+            charName = value;
+            MarkChanged();
+        }
+    }
 
     public string ZoneName
     {
@@ -125,10 +144,24 @@ public class EncounterData
 
             return zoneName;
         }
-        set => zoneName = value;
+        set
+        {
+            zoneName = value;
+            MarkChanged();
+        }
     }
 
-    public bool Active { get; set; }
+    private bool active;
+
+    public bool Active
+    {
+        get => active;
+        set
+        {
+            active = value;
+            MarkChanged();
+        }
+    }
 
     public List<DateTime> StartTimes
     {
@@ -141,7 +174,11 @@ public class EncounterData
 
             return startTimes;
         }
-        set => startTimes = value;
+        set
+        {
+            startTimes = value;
+            MarkChanged();
+        }
     }
 
     public List<DateTime> EndTimes
@@ -153,7 +190,11 @@ public class EncounterData
 
             return endTimes;
         }
-        set => endTimes = value;
+        set
+        {
+            endTimes = value;
+            MarkChanged();
+        }
     }
 
     public string Title
@@ -161,7 +202,11 @@ public class EncounterData
         get => zoneName == ActGlobals.Trans["mergedEncounterTerm-all"]
                    ? ActGlobals.Trans["mergedEncounterTerm-all"]
                    : title;
-        set => title = value;
+        set
+        {
+            title = value;
+            MarkChanged();
+        }
     }
 
     public DateTime StartTime
@@ -309,6 +354,18 @@ public class EncounterData
 
     public void AddCombatAction(MasterSwing action)
     {
+        try
+        {
+            AddCombatActionCore(action);
+        }
+        finally
+        {
+            MarkChanged();
+        }
+    }
+
+    private void AddCombatActionCore(MasterSwing action)
+    {
         // Check if we need to avoid duplicate actions
         if (DuplicateDetection && includedTimeSorters.Contains(action.TimeSorter))
         {
@@ -393,17 +450,25 @@ public class EncounterData
     {
         lock (ActGlobals.ActionDataLock)
         {
-            Active = false;
-            EndTimes.Add(StartTimes[EndTimes.Count] < EndTime ? EndTime : StartTimes[EndTimes.Count]);
-            if (!Finalize) return;
-            Trim();
-            Title = GetStrongestEnemy(ActGlobals.charName)!;
+            try
+            {
+                Active = false;
+                EndTimes.Add(StartTimes[EndTimes.Count] < EndTime ? EndTime : StartTimes[EndTimes.Count]);
+                if (!Finalize) return;
+                Trim();
+                Title = GetStrongestEnemy(ActGlobals.charName)!;
+            }
+            finally
+            {
+                MarkChanged();
+            }
         }
     }
 
     public void SetAlliesUncached()
     {
         if (!alliesManual) alliesCached = false;
+        MarkChanged();
     }
 
     public void SetAllies(List<CombatantData> allies)
@@ -419,6 +484,8 @@ public class EncounterData
             alliesCached = true;
             alliesManual = true;
         }
+
+        MarkChanged();
     }
 
     public List<CombatantData> GetAllies() => GetAllies(false);
@@ -580,7 +647,8 @@ public class EncounterData
             return string.Empty;
 
         var arg = allies.FirstOrDefault(combatant => combatant.GetAttackType(ActGlobals.Trans["attackTypeTerm-all"],
-                                            CombatantData.DamageTypeDataOutgoingDamage)?.Items.Contains(maxSwing) ?? false)?.Name;
+                                            CombatantData.DamageTypeDataOutgoingDamage) is { } attackType &&
+                                                     ContainsSwing(attackType.Items, maxSwing))?.Name;
 
         if (arg == null)
             return string.Empty;
@@ -606,13 +674,35 @@ public class EncounterData
         var combatantName =
             allies.FirstOrDefault(
                 a => a.GetAttackType(ActGlobals.Trans["attackTypeTerm-all"],
-                                     CombatantData.DamageTypeDataOutgoingHealing)?.Items.Contains(maxHealSwing) ??
-                     false)?.Name ?? string.Empty;
+                                     CombatantData.DamageTypeDataOutgoingHealing) is { } attackType &&
+                     ContainsSwing(attackType.Items, maxHealSwing))?.Name ?? string.Empty;
         var damageString = ActGlobals.oFormActMain.CreateDamageString(maxHealSwing.Damage, UseSuffix, ShowType);
 
         return ShowType
                    ? $"{combatantName}-{maxHealSwing.AttackType}-{damageString}"
                    : $"{combatantName}-{damageString}";
+    }
+
+    // 與 items.Contains(target) 結果相同（MasterSwing.Equals＝兩邊 ToString 相等，每比一下配置兩個字串）。ToString 以
+    // Time:s 開頭，不同秒的兩下必不相等，所以只有同一秒的才真的呼叫 Equals；子類別可能改寫 Equals／ToString，照原樣呼叫。
+    private static bool ContainsSwing(List<MasterSwing> items, MasterSwing target)
+    {
+        var span = CollectionsMarshal.AsSpan(items ?? throw new NullReferenceException());
+        var exact = target.GetType() == typeof(MasterSwing);
+        var second = target.Time.Ticks / TimeSpan.TicksPerSecond;
+        foreach (var swing in span)
+        {
+            if (swing is null) continue;
+            if (exact && swing.GetType() == typeof(MasterSwing))
+            {
+                if (ReferenceEquals(swing, target)) return true;
+                if (swing.Time.Ticks / TimeSpan.TicksPerSecond != second) continue;
+            }
+
+            if (swing.Equals(target)) return true;
+        }
+
+        return false;
     }
     
     public bool GetIsSelective() => sParsing;

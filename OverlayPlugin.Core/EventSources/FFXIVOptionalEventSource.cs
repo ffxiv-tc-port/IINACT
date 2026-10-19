@@ -18,6 +18,15 @@ namespace RainbowMage.OverlayPlugin.EventSources
 
         private FFXIVRepository repository;
 
+        // 與原本 JObject.FromObject(new { type, line, rawLine }) 同一個匿名型別形狀；line 沒拆過時在這裡才拆。
+        private static readonly Func<string, string[], JObject> BuildLogLineEvent =
+            (rawLine, line) => JObject.FromObject(new
+            {
+                type = LogLineEvent,
+                line = line ?? rawLine.Split('|'),
+                rawLine,
+            });
+
         // Event Source
 
         public BuiltinEventConfig Config { get; set; }
@@ -87,11 +96,14 @@ namespace RainbowMage.OverlayPlugin.EventSources
             try
             {
                 LogMessageType lineType = (LogMessageType)args.detectedType;
-                var line = args.originalLogLine.Split('|');
-                
+                var rawLine = args.originalLogLine ?? throw new NullReferenceException(); // 與原本先 Split 時一樣：記錯誤、不派送
+                // 只有下面用到欄位的幾種行才在這裡拆；其餘的行由 BuildLogLineEvent 在有人要 JObject 時才拆。
+                string[] line = null;
+
                 switch (lineType)
                 {
                     case LogMessageType.ChangeZone:
+                        line = rawLine.Split('|');
                         if (line.Length < 3) return;
 
                         var zoneID = Convert.ToUInt32(line[2], 16);
@@ -106,6 +118,7 @@ namespace RainbowMage.OverlayPlugin.EventSources
                         break;
 
                     case LogMessageType.ChangeMap:
+                        line = rawLine.Split('|');
                         if (line.Length < 6) return;
 
                         var mapID = Convert.ToUInt32(line[2], 10);
@@ -124,6 +137,7 @@ namespace RainbowMage.OverlayPlugin.EventSources
                         break;
 
                     case LogMessageType.ChangePrimaryPlayer:
+                        line = rawLine.Split('|');
                         if (line.Length < 4) return;
 
                         var charID = Convert.ToUInt32(line[2], 16);
@@ -139,6 +153,7 @@ namespace RainbowMage.OverlayPlugin.EventSources
 
                     case LogMessageType.Network6D:
                         if (!Config.EndEncounterAfterWipe) break;
+                        line = rawLine.Split('|');
                         if (line.Length < 4) break;
 
                         // 4000000F is the new value for 6.2, 40000010 is the pre-6.2 value.
@@ -161,12 +176,8 @@ namespace RainbowMage.OverlayPlugin.EventSources
 
                 // @TODO: Technically this event should work fine for any game, not just FFXIV.
                 // Should it be moved to emit right after attempting the split instead?
-                DispatchEvent(JObject.FromObject(new
-                {
-                    type = LogLineEvent,
-                    line,
-                    rawLine = args.originalLogLine,
-                }));
+                // 每一行都走這裡：沒有訂閱者時什麼都不組；只有 IRawLogLineReceiver 訂閱時也不組 JObject。
+                DispatchLogLine(LogLineEvent, rawLine, line, BuildLogLineEvent);
             }
             catch (Exception e)
             {

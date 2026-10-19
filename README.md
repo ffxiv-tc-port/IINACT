@@ -1,48 +1,35 @@
-![icon](https://github.com/marzent/IINACT/blob/main/images/icon.ico?raw=true)
-
 # IINACT
 
-A [Dalamud](https://github.com/goatcorp/Dalamud) plugin to run the [FFXIV_ACT_Plugin](https://github.com/ravahn/FFXIV_ACT_Plugin) in an [ACT](https://advancedcombattracker.com/)-like enviroment with a heavily modified port of [Overlay Plugin](https://github.com/OverlayPlugin/OverlayPlugin) for modern .NET.
+[IINACT](https://github.com/marzent/IINACT) 的台服移植版：在 Dalamud 內執行 FFXIV_ACT_Plugin 解析戰鬥數據，並提供相容 ACT／OverlayPlugin 的 WebSocket 資料伺服器，給疊加層與紀錄工具使用，不需要另外安裝 ACT。**本身不繪製任何疊加層畫面。**
 
-The data source here is only based on [Unscrambler](https://github.com/perchbirdd/Unscrambler) and does not require any extra injection with [Deucalion](https://github.com/ff14wed/deucalion) or network capture with elevated privileges.
+## 功能
 
-This will **not** render overlays by itself, use something like [Browsingway](https://github.com/Styr1x/Browsingway), [Next UI](https://github.com/kaminaris/Next-UI), [hudkit](https://github.com/valarnin/hudkit) (Linux only) or [Bunny HUD](https://github.com/marzent/Bunny-HUD) (macOS only) to display Overlays.
+- **內建 Overlay Plugin**（現代 .NET 移植版）：提供標準 ACT／OverlayPlugin 相容的 WebSocket 服務，可搭配 [Kagerou](https://plusonechiang.github.io/kagerou/overlay/) 等疊加層使用；主視窗可產生疊加層網址
+- **資料來源**：掛在遊戲的封包接收函式上，先讓遊戲照常處理，再讀取收到的網路資料交給解析元件（只讀，不修改、不送出封包）
+- **解析元件 FFXIV_ACT_Plugin**：第一次載入與有新版時自動下載，只安裝 SHA-256 在已知清單裡的版本；新版不在清單時不安裝、沿用目前的版本並跳通知，本機沒有可用版本時改裝清單裡的已知版本；都拿不到時插件不載入並說明原因
+- **紀錄輸出與 FFLogs Uploader 相容**：紀錄檔預設存放於「文件」資料夾下的 `IINACT`，可設定自動刪除舊紀錄、PvP 時不寫紀錄
+- **文字轉語音**：給疊加層的語音提示使用 Windows 內建語音（SAPI）；可選擇內建語音不能用時改用 Google 語音（預設關），或一律使用 Google 語音
+- **台服支援**：Region 固定為 TraditionalChinese、封包 opcode 與解混淆表針對台服執行檔調整、預設疊加層清單指向台服在地化的 Kagerou fork
+- 提供 IPC（`IINACT.CreateSubscriber` 等）給其他插件訂閱資料
 
+## 指令
 
-## Why
+- `/iinact`：開啟主視窗
+- `/endenc`：結束目前正在解析的戰鬥
 
-- ACT is too inconvenient IMHO for just wanting to have the game data parsed and served via a WebSocket server
-- Drastically more efficent than ACT, in part to .NET 7.0, in part to a more sane log line processing (disk I/O is not blocking LogLineEvents and happening on a separate lower priority thread)
-- Due to the above and running fully inside the game process CPU usage will be orders of magnitude (not exaggerating here) lower when running under Wine compared to network-based capture
-- Uses an ultra fast and low latency WebSocket server based on [NetCoreServer](https://github.com/chronoxor/NetCoreServer)
-- Doesn't use legacy technology that hurts Linux and macOS users
-- Follows the Unix philosophy of just doing one thing and doing it well   
+## 台服版的修改
 
-## Installing 
+- 封包 opcode、解混淆表與倒數計時、MapEffect、CE 進度等自訂 log line 對應台服版本；遇到還沒支援的遊戲版本時停用解混淆並通知
+- 解析元件只安裝已知雜湊的版本，換版期間沿用舊版並提示
+- 遊戲改版後封包接收函式的特徵碼對不上時，插件照常載入並明講「收不到網路資料，戰鬥解析停用」；命中數不對時不掛 hook
+- Windows 內建語音不能用時，不再自動把文字送給 Google
+- 修正 WebSocket Server 分頁每幀存檔造成的卡頓，多處降低記憶體用量
+- 介面繁體中文化
 
-> **Warning**  
-> No support will be provided on any Dalamud official support channel. Please use the [Issues](https://github.com/marzent/IINACT/issues) page or [Discord](https://discord.gg/pcexJC8YPG) for any support requests. Do NOT ask for support on the [XIVLauncher & Dalamud Discord](https://discord.gg/holdshift), as support for 3rd-party plugins is not provided there. 
+## 需要搭配的插件
 
-Install instructions can be found [here](https://www.iinact.com/installation/), but are indentical to any other 3rd-party plugin repository.
+- 顯示疊加層畫面：Crossingway（遊戲內瀏覽器覆蓋層）
 
-## How to build
+## 授權
 
-Just run 
-```
-git clone --recurse-submodules https://github.com/marzent/IINACT.git
-cd IINACT
-dotnet build
-``` 
-on a Linux, macOS or Windows machine with the [.NET 7 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/7.0). 
-
-You will need to be able to reference Dalamud as well, meaning having an install of [XL](https://github.com/goatcorp/FFXIVQuickLauncher) or [XOM](https://github.com/marzent/XIV-on-Mac) on Windows and macOS respectively. On Linux `DALAMUD_HOME` needs to be correctly set (for example `$HOME/.xlcore/dalamud/Hooks/dev`).
-
-## FAQ
-
-**Where are my logs?**
-
-- In your Documents folder. For Windows users, `C:\Users\[user]\Documents\IINACT`. For Mac/Linux users, same thing, but relative to your wine prefix.
-
-**Are these logs compatible with FFLogs? Can I use the FFLogs Uploader?**
-
-- Yes! 100% compatible.
+依照原專案授權條款發布，詳見 [LICENSE](LICENSE)。

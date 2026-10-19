@@ -1,0 +1,29 @@
+{
+    "version": 2,
+    "overlays": [
+        {
+            "name": "Kagerou",
+            "uri": "https://plusonechiang.github.io/kagerou/overlay/",
+            "plaintext_uri": "http://plusonechiang.github.io/kagerou/overlay/",
+            "features": [
+                "host_port"
+            ]
+        },
+        {
+            "name": "Ember Overlay",
+            "uri": "https://goldenchrysus.github.io/ffxiv/ember-overlay/",
+            "plaintext_uri": "https://goldenchrysus.github.io/ffxiv/ember-overlay/",
+            "features": [
+                "host_port"
+            ]
+        },
+        {
+            "name": "ikagami",
+            "uri": "https://idyllshi.re/ikegami/",
+            "plaintext_uri": "https://idyllshi.re/ikegami/",
+            "features": [
+                "host_port"
+            ]
+        }
+    ]
+}

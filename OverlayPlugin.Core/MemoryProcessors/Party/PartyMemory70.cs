@@ -98,7 +98,10 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Party
         }
 
 
-        public unsafe PartyListsStruct GetPartyLists()
+        public PartyListsStruct GetPartyLists() => GetPartyLists(null);
+
+        // reuse 非 null 時就地填好並回傳它（呼叫端必須已不再需要它的內容）；讀不到記憶體時照舊回新的空物件。
+        public unsafe PartyListsStruct GetPartyLists(PartyListsStruct reuse)
         {
             if (!IsValid())
             {
@@ -111,84 +114,77 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Party
             {
                 return new PartyListsStruct();
             }
-            var groupManager = Marshal.PtrToStructure<DoubleGroupManager>(partyInstanceAddress);
+            // 型別全是固定大小的數值欄位：直接複製與 Marshal 逐位元組相同，只是不在堆積上裝箱一份。
+            var groupManager = *(DoubleGroupManager*)partyInstanceAddress;
+            var ret = reuse ?? new PartyListsStruct();
 
             // `PartyMembers` is a standard array, members are moved up/down as they're added/removed.
             // As such, limit extracting members to the current count to avoid "ghost" members
-            var partyMembers = extractPartyMembers(groupManager.groupManager1.PartyMembers, Math.Min((int)groupManager.groupManager1.MemberCount, 8));
+            var partyCount = Math.Min((int)groupManager.groupManager1.MemberCount, 8);
+            var partyMembers = ret.PartyArray(partyCount);
+            for (var i = 0; i < partyCount; ++i)
+            {
+                partyMembers[i] = fillEntry(ret, 0, i, (PartyMember*)groupManager.groupManager1.PartyMembers + i);
+            }
 
             // `AllianceMembers` is a fixed-position array, with removed elements being mostly zero'd out
             // Easiest way to check if an entry is still active is to check for `Flags != 0`
-            var alliance1Members = extractAllianceMembers(groupManager.groupManager1.AllianceMembers, 20, 0, 8);
-            var alliance2Members = extractAllianceMembers(groupManager.groupManager1.AllianceMembers, 20, 8, 8);
+            var alliance1Members = extractAllianceMembers(ret, 1, groupManager.groupManager1.AllianceMembers, 20, 0);
+            var alliance2Members = extractAllianceMembers(ret, 2, groupManager.groupManager1.AllianceMembers, 20, 8);
             // TOOD: Actually verify D/E/F alliance info?
-            var alliance3Members = extractAllianceMembers(groupManager.groupManager2.PartyMembers, 8, 0, 8);
-            var alliance4Members = extractAllianceMembers(groupManager.groupManager2.AllianceMembers, 20, 0, 8);
-            var alliance5Members = extractAllianceMembers(groupManager.groupManager2.AllianceMembers, 20, 8, 8);
+            var alliance3Members = extractAllianceMembers(ret, 3, groupManager.groupManager2.PartyMembers, 8, 0);
+            var alliance4Members = extractAllianceMembers(ret, 4, groupManager.groupManager2.AllianceMembers, 20, 0);
+            var alliance5Members = extractAllianceMembers(ret, 5, groupManager.groupManager2.AllianceMembers, 20, 8);
 
-            return new PartyListsStruct()
-            {
-                partyId = groupManager.groupManager1.PartyId,
-                partyId_2 = groupManager.groupManager1.PartyId_2,
-                partyLeaderIndex = groupManager.groupManager1.PartyLeaderIndex,
-                memberCount = groupManager.groupManager1.MemberCount,
-                allianceFlags = groupManager.groupManager1.AllianceFlags,
+            ret.partyId = groupManager.groupManager1.PartyId;
+            ret.partyId_2 = groupManager.groupManager1.PartyId_2;
+            ret.partyLeaderIndex = groupManager.groupManager1.PartyLeaderIndex;
+            ret.memberCount = groupManager.groupManager1.MemberCount;
+            ret.allianceFlags = groupManager.groupManager1.AllianceFlags;
 
-                currentPartyFlags = groupManager.groupManager1.CurrentPartyFlags,
+            ret.currentPartyFlags = groupManager.groupManager1.CurrentPartyFlags;
 
-                partyMembers = partyMembers,
-                alliance1Members = alliance1Members,
-                alliance2Members = alliance2Members,
-                alliance3Members = alliance3Members,
-                alliance4Members = alliance4Members,
-                alliance5Members = alliance5Members,
-            };
+            ret.partyMembers = partyMembers;
+            ret.alliance1Members = alliance1Members;
+            ret.alliance2Members = alliance2Members;
+            ret.alliance3Members = alliance3Members;
+            ret.alliance4Members = alliance4Members;
+            ret.alliance5Members = alliance5Members;
+            return ret;
         }
 
-        private unsafe PartyListEntry[] extractAllianceMembers(byte* allianceMembers, int elementCount, int start, int count)
+        // 每段固定 8 格；超出 elementCount 或 Flags 為 0 的格放 null。
+        private static unsafe PartyListEntry[] extractAllianceMembers(PartyListsStruct ret, int section, byte* allianceMembers, int elementCount, int start)
         {
-            var allMembers = extractPartyMembers(allianceMembers, elementCount);
-            var retMembers = new PartyListEntry[count];
-            for (var i = start; i < start + count && i < allMembers.Length; ++i)
+            var retMembers = ret.AllianceArray(section);
+            for (var i = 0; i < retMembers.Length; ++i)
             {
-                var member = allMembers[i];
-                if (member.flags == 0)
-                {
-                    continue;
-                }
-
-                retMembers[i - start] = member;
+                var at = start + i;
+                var member = (PartyMember*)allianceMembers + at;
+                retMembers[i] = at < elementCount && member->Flags != 0 ? fillEntry(ret, section, i, member) : null;
             }
             return retMembers;
         }
 
-        private unsafe PartyListEntry[] extractPartyMembers(byte* ptr, int count)
+        private static unsafe PartyListEntry fillEntry(PartyListsStruct ret, int section, int slot, PartyMember* member)
         {
-            var ret = new PartyListEntry[count];
-            for (int i = 0; i < count; ++i)
-            {
-                var member = Marshal.PtrToStructure<PartyMember>(new IntPtr(ptr + (i * sizeof(PartyMember))));
-                ret[i] = new PartyListEntry()
-                {
-                    x = member.X,
-                    y = member.Y,
-                    z = member.Z,
-                    contentId = (long)member.ContentId,
-                    objectId = member.EntityId,
-                    currentHP = member.CurrentHP,
-                    maxHP = member.MaxHP,
-                    currentMP = member.CurrentMP,
-                    maxMP = member.MaxMP,
-                    territoryType = member.TerritoryType,
-                    homeWorld = member.HomeWorld,
-                    name = FFXIVMemory.GetStringFromBytes(member.Name, 0x40),
-                    sex = member.Sex,
-                    classJob = member.ClassJob,
-                    level = member.Level,
-                    flags = member.Flags,
-                };
-            }
-            return ret;
+            var entry = ret.PooledEntry(section, slot, member->Name);
+            entry.x = member->X;
+            entry.y = member->Y;
+            entry.z = member->Z;
+            entry.contentId = (long)member->ContentId;
+            entry.objectId = member->EntityId;
+            entry.currentHP = member->CurrentHP;
+            entry.maxHP = member->MaxHP;
+            entry.currentMP = member->CurrentMP;
+            entry.maxMP = member->MaxMP;
+            entry.territoryType = member->TerritoryType;
+            entry.homeWorld = member->HomeWorld;
+            entry.sex = member->Sex;
+            entry.classJob = member->ClassJob;
+            entry.level = member->Level;
+            entry.flags = member->Flags;
+            return entry;
         }
 
     }

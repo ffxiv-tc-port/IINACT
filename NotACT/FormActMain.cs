@@ -207,7 +207,7 @@ public partial class FormActMain : Form, ISynchronizeInvoke
     }
 
 
-    public void TTS(string message) => TextToSpeech(message);
+    public void TTS(string message) => TextToSpeech?.Invoke(message);
 
     public void ChangeZone(string ZoneName)
     {
@@ -239,7 +239,7 @@ public partial class FormActMain : Form, ISynchronizeInvoke
     public void EndCombat(bool export)
     {
         if (inCombat) inCombat = false;
-        if (ActiveZone.ActiveEncounter.Active)
+        if (ActiveZone?.ActiveEncounter?.Active == true)
         {
             if (ActiveZone.PopulateAll)
                 ActiveZone.Items[0].EndCombat(Finalize: false);
@@ -353,6 +353,29 @@ public partial class FormActMain : Form, ISynchronizeInvoke
         Action.damageType = string.Intern(combatActionEventArgs.theDamageType);
         Action.victim = string.Intern(combatActionEventArgs.victim);
         afterActionsQueue.Enqueue(Action);
+    }
+
+    public WorkerThreadState LogReaderThreadState => StateOf(logReaderThread);
+    public WorkerThreadState CombatActionThreadState => StateOf(afterActionQueueThread);
+    public int PendingCombatActions => afterActionsQueue.Count;
+
+    private WorkerThreadState StateOf(Thread? thread) =>
+        thread is null || !pluginActive ? WorkerThreadState.NotStarted
+        : thread.IsAlive ? WorkerThreadState.Running : WorkerThreadState.Exited;
+
+    // 只在舊執行緒已經結束時才開新的：兩條同時消費同一個佇列會打亂行序。
+    public bool TryRestartLogReaderThread()
+    {
+        if (LogReaderThreadState != WorkerThreadState.Exited) return false;
+        StartLogReaderThread();
+        return true;
+    }
+
+    public bool TryRestartCombatActionThread()
+    {
+        if (CombatActionThreadState != WorkerThreadState.Exited) return false;
+        StartAfterCombatActionThread();
+        return true;
     }
 
     private void StartLogWriterThread()
@@ -551,4 +574,11 @@ public partial class FormActMain : Form, ISynchronizeInvoke
     {
         pluginActive = false;
     }
+}
+
+public enum WorkerThreadState
+{
+    NotStarted,
+    Running,
+    Exited,
 }

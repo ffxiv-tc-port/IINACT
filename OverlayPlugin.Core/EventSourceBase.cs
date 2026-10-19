@@ -129,6 +129,16 @@ namespace RainbowMage.OverlayPlugin
             dispatcher.DispatchEvent(e);
         }
 
+        private protected void DispatchLogLine(string eventType, string rawLine, string[] line, Func<string, string[], JObject> build)
+        {
+            dispatcher.DispatchLogLine(eventType, rawLine, line, build);
+        }
+
+        private protected void DispatchCombatData(string eventType, EventSources.CombatDataSnapshot data)
+        {
+            dispatcher.DispatchCombatData(eventType, data);
+        }
+
         protected bool HasSubscriber(string eventName)
         {
             return dispatcher.HasSubscriber(eventName);

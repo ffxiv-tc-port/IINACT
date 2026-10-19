@@ -18,28 +18,15 @@
         <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
         <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
         <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
-        <LangVersion>12</LangVersion>
+        <LangVersion>latest</LangVersion>
         <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
         <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
     </PropertyGroup>
 
-    <PropertyGroup Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))'">
-        <DalamudLibPath Condition="Exists('$(HOME)/Library/Application Support/XIVTheCalamity/dalamud/hooks/dev/')">$(HOME)/Library/Application Support/XIVTheCalamity/dalamud/hooks/dev/</DalamudLibPath>
-        <DalamudLibPath Condition="'$(DalamudLibPath)' == ''">$(HOME)/Library/Application Support/XIV on Mac/dalamud/Hooks/dev/</DalamudLibPath>
+    <PropertyGroup Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))' and '$(DALAMUD_HOME)' == ''">
+        <DALAMUD_HOME Condition="Exists('$(HOME)/Library/Application Support/XIVTheCalamity/dalamud/hooks/dev/')">$(HOME)/Library/Application Support/XIVTheCalamity/dalamud/hooks/dev/</DALAMUD_HOME>
     </PropertyGroup>
 
-    <PropertyGroup Condition="'$(DALAMUD_HOME)' != ''">
-        <DalamudLibPath>$(DALAMUD_HOME)/</DalamudLibPath>
-    </PropertyGroup>
-
-
-
-    <ItemGroup>
-        <Reference Include="Dalamud.Bindings.ImGui">
-            <HintPath>$(DalamudLibPath)Dalamud.Bindings.ImGui.dll</HintPath>
-            <Private>False</Private>
-        </Reference>
-    </ItemGroup>
 
     <ItemGroup>
         <PackageReference Include="Microsoft.Windows.CsWin32" Version="0.3.183">
@@ -97,6 +84,9 @@
     <ItemGroup>
         <Content Include="..\external_dependencies\SafeMemoryReader.dll">
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="LanguageChineseTraditional.ini">
+            <CopyToOutputDirectory>Always</CopyToOutputDirectory>
         </Content>
     </ItemGroup>
 

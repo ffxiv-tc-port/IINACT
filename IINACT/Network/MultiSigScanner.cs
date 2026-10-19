@@ -506,7 +506,9 @@ public class MultiSigScanner : IDisposable
 
     private void SetupCopy()
     {
-        var handle = PInvoke.CreateFile(Module.FileName,
+        // handle 與 map 由各自的 SafeHandle 在離開這個方法時各關一次（含提早返回）。
+        // 刻意不對 DangerousGetHandle() 的原始值 CloseHandle：終結器還會再關一次同一個數值，那時它可能已是別人的控制代碼。
+        using var handle = PInvoke.CreateFile(Module.FileName,
                 GenericRead,
                 FILE_SHARE_MODE.FILE_SHARE_READ, 
                 null,
@@ -520,7 +522,7 @@ public class MultiSigScanner : IDisposable
             return;
         }
         
-        var map = PInvoke.CreateFileMapping(handle,
+        using var map = PInvoke.CreateFileMapping(handle,
             null,
             PAGE_PROTECTION_FLAGS.PAGE_READONLY | PAGE_PROTECTION_FLAGS.SEC_IMAGE,
             0,
@@ -568,9 +570,6 @@ public class MultiSigScanner : IDisposable
         {
             PInvoke.UnmapViewOfFile((MEMORY_MAPPED_VIEW_ADDRESS)view.Value);   
         }
-        Plugin.Log.Debug("[MultiSigScanner] Unmapped. Closing handles.");
-        PInvoke.CloseHandle((HANDLE)handle.DangerousGetHandle());
-        PInvoke.CloseHandle((HANDLE)map.DangerousGetHandle());
-        Plugin.Log.Debug("[MultiSigScanner] Handles closed.");
+        Plugin.Log.Debug("[MultiSigScanner] Unmapped.");
     }
 }

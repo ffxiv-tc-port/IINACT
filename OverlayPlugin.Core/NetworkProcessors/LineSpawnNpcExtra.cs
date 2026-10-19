@@ -49,6 +49,7 @@ After the first Superchain cast in P12N, 3 orbs and 1 donut are spawned with tet
 namespace RainbowMage.OverlayPlugin.NetworkProcessors
 {
     class LineSpawnNpcExtra : LineBaseCustomMachina<Server_MessageHeader_Global, LineSpawnNpcExtra.Server_NpcSpawn_Global_6_51,
+            Server_MessageHeader_TC, LineSpawnNpcExtra.Server_NpcSpawn_Global_6_51,
             Server_MessageHeader_CN, LineSpawnNpcExtra.Server_NpcSpawn_Global_6_51,
             Server_MessageHeader_KR, LineSpawnNpcExtra.Server_NpcSpawn_Global_6_51>
     {

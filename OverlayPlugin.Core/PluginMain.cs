@@ -32,7 +32,6 @@ namespace RainbowMage.OverlayPlugin
         public string Status { get; private set; }
 
         internal string ConfigPath { get; private set; }
-        private Timer _configSaveTimer;
 
         internal PluginConfig Config { get; private set; }
         internal List<IOverlay> Overlays { get; private set; }
@@ -45,10 +44,6 @@ namespace RainbowMage.OverlayPlugin
             _container = container;
             PluginDirectory = pluginDirectory;
             _logger = logger;
-
-            _configSaveTimer = new Timer();
-            _configSaveTimer.Interval = 300000; // 5 minutes
-            _configSaveTimer.Tick += (o, e) => SaveConfig();
 
             _container.Register(this);
         }
@@ -240,8 +235,8 @@ namespace RainbowMage.OverlayPlugin
                             _container.Resolve<ServerController>().Start();
                         }
 
-                        Status = @"Init Phase 2: Save timer";
-                        _configSaveTimer.Start();
+                        // 刻意不建 5 分鐘自動存檔計時器：原本的 WinForms Timer 在執行緒池上啟動、沒有訊息迴圈，
+                        // 從來不會觸發，卻用 GCHandle 讓卸載後的插件留在記憶體裡。設定照舊在載入與 DeInitPlugin 時存。
 
                         Status = @"Initialised";
                         // Make the log small; startup was successful and there shouldn't be any error message to show.

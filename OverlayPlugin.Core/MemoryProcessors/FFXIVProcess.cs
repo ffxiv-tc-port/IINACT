@@ -202,8 +202,11 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors
         //   JobDataInnerStruct* inner;  // This points to the address after it currently.
         //   JobDataInnerStruct {
         internal static int kJobDataOuterStructOffset = 0;
-        internal static int kJobDataInnerStructOffset = 8;
-        internal static int kJobDataInnerStructSize = 16 - kJobDataInnerStructOffset;
+        internal const int kJobDataInnerStructOffset = 8;
+        internal const int kJobDataInnerStructSize = 16 - kJobDataInnerStructOffset;
+
+        // 職業量表整段放得進一個 ulong（TryReadJobSpecificBytes 靠這個）；大小改了這行就編譯失敗。
+        private const int kJobDataFitsInUlong = 1 / (kJobDataInnerStructSize == sizeof(ulong) ? 1 : 0);
 
         internal abstract void ReadSignatures();
 
@@ -281,7 +284,130 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors
             return Read8(job_inner_ptr, kJobDataInnerStructSize);
         }
 
-        public abstract JObject GetJobSpecificData(EntityJob job);
+        // 讀 GetRawJobSpecificDataBytes 那 8 個位元組（同樣的條件、同樣的失敗情形），不配置。
+        internal unsafe bool TryReadJobSpecificBytes(out ulong bytes)
+        {
+            bytes = 0;
+            if (!HasProcess() || job_data_outer_addr_ == IntPtr.Zero)
+                return false;
+
+            var job_inner_ptr = ReadIntPtr(job_data_outer_addr_);
+            if (job_inner_ptr == IntPtr.Zero)
+                return false;
+
+            job_inner_ptr = IntPtr.Add(job_inner_ptr, kJobDataInnerStructOffset);
+            ulong value;
+            if (ReadMemory((nint)(&value), job_inner_ptr, kJobDataInnerStructSize) != 0)
+                return false;
+            bytes = value;
+            return true;
+        }
+
+        public unsafe JObject GetJobSpecificData(EntityJob job)
+        {
+            return TryReadJobSpecificBytes(out var bytes) ? JobSpecificDataFromBytes(job, (byte*)&bytes) : null;
+        }
+
+        internal unsafe JObject JobSpecificDataFromBytes(EntityJob job, ulong bytes)
+        {
+            return JobSpecificDataFromBytes(job, (byte*)&bytes);
+        }
+
+        // p 指向 kJobDataInnerStructSize 個位元組。回不回 null 只看 job（不支援的職業回 null）；
+        // 不是 null 時內容只由 job 與這 8 個位元組決定。
+        internal abstract unsafe JObject JobSpecificDataFromBytes(EntityJob job, byte* p);
+
+        // 每個職業值：0＝還沒試過、1＝JobSpecificDataFromBytes 回 JObject、-1＝回 null。
+        private readonly sbyte[] jobDataSupported = new sbyte[256];
+
+        internal bool HasJobSpecificData(EntityJob job)
+        {
+            var known = jobDataSupported[(byte)job];
+            if (known == 0)
+            {
+                known = JobSpecificDataFromBytes(job, 0UL) != null ? (sbyte)1 : (sbyte)-1;
+                jobDataSupported[(byte)job] = known;
+            }
+            return known > 0;
+        }
+
+        // 與逐位元組 debug_job += " " + string.Format("{0:x2}", b) 的結果相同（第一個位元組前面也有空白）；讀不到是 null。
+        internal string GetDebugJobString()
+        {
+            if (!TryReadJobSpecificBytes(out var bytes))
+                return null;
+            var cached = lastJobString;
+            if (cached != null && cached.Key == bytes)
+                return cached.Value;
+            var value = string.Create(kJobDataInnerStructSize * 3, bytes, static (span, v) =>
+            {
+                const string hex = "0123456789abcdef";
+                for (var i = 0; i < kJobDataInnerStructSize; i++)
+                {
+                    var b = (byte)(v >> (8 * i));
+                    span[3 * i] = ' ';
+                    span[3 * i + 1] = hex[b >> 4];
+                    span[3 * i + 2] = hex[b & 0xF];
+                }
+            });
+            lastJobString = new CachedString<ulong>(bytes, value);
+            return value;
+        }
+
+        // GetSelfData 每 16 ms 一次：位元組沒變就沿用上次的字串（同樣的位元組解出同樣的字串）。
+        // 項目不可變、整個換掉：計時器回呼就算重疊，最多只是多解碼一次。
+        private sealed class CachedString<TKey>
+        {
+            public readonly TKey Key;
+            public readonly string Value;
+
+            public CachedString(TKey key, string value)
+            {
+                Key = key;
+                Value = value;
+            }
+        }
+
+        private CachedString<ulong> lastJobString;
+        private CachedString<byte[]> lastEntityName;
+
+        // 與 DecodeEntityName 相同的結果；第一個 0 之前的位元組與上次相同時不重新解碼。
+        internal unsafe string DecodeEntityNameCached(byte* name, int count)
+        {
+            var span = new ReadOnlySpan<byte>(name, count);
+            var len = span.IndexOf((byte)0);
+            var key = len < 0 ? span : span.Slice(0, len);
+            var cached = lastEntityName;
+            if (cached != null && key.SequenceEqual(cached.Key))
+                return cached.Value;
+            var value = System.Text.Encoding.UTF8.GetString(key);
+            lastEntityName = new CachedString<byte[]>(key.ToArray(), value);
+            return value;
+        }
+
+        // 與 Encoding.UTF8.GetString(name, count).Split('\0', 2)[0] 相同：0x00 只會解成 U+0000，
+        // 而截在 0 前面的不完整序列不論後面接 0 還是到結尾，都換成同一個 U+FFFD。
+        internal static unsafe string DecodeEntityName(byte* name, int count)
+        {
+            var len = new ReadOnlySpan<byte>(name, count).IndexOf((byte)0);
+            return System.Text.Encoding.UTF8.GetString(name, len < 0 ? count : len);
+        }
+
+        // 讀進向 ArrayPool 租來的緩衝；GetEntityDataFromByteArray 會把整個結構複製出來，不留著陣列。
+        internal EntityData GetEntityDataPooled(IntPtr entity_ptr, int size)
+        {
+            var source = Read8Pooled(entity_ptr, size);
+            try
+            {
+                return GetEntityDataFromByteArray(source);
+            }
+            finally
+            {
+                if (source != null)
+                    ArrayPool<byte>.Shared.Return(source);
+            }
+        }
+
         internal abstract EntityData GetEntityData(IntPtr entity_ptr);
         public abstract EntityData GetSelfData();
 

@@ -154,14 +154,15 @@ public class CombatantData : IComparable, IEquatable<CombatantData>, IComparable
 
             if (!AllInc.TryGetValue(ActGlobals.Trans["specialAttackTerm-killing"], out var value))
             {
+                // 每次重算都從 0 數：任何受到的攻擊都會讓快取作廢，沿用舊值會重複累加。
+                var deaths = 0;
                 if (AllInc.TryGetValue(ActGlobals.Trans["attackTypeTerm-all"], out value))
                 {
                     foreach (var swing in value.Items)
-                        if (swing.Damage == Dnum.Death)
-                            cachedDeaths++;
+                        if (swing.Damage == Dnum.DeathComparand)
+                            deaths++;
                 }
-                else
-                    cachedDeaths = 0;
+                cachedDeaths = deaths;
             }
             else
                 cachedDeaths = value.Items.Count;
@@ -206,7 +207,7 @@ public class CombatantData : IComparable, IEquatable<CombatantData>, IComparable
             {
                 foreach (var attackType in value.Items)
                 {
-                    if (attackType.Damage == Dnum.Death && (flag || !attackType.Victim.Contains(" ")))
+                    if (attackType.Damage == Dnum.DeathComparand && (flag || !attackType.Victim.Contains(" ")))
                     {
                         cachedKills++;
                     }
@@ -285,10 +286,13 @@ public class CombatantData : IComparable, IEquatable<CombatantData>, IComparable
             var masterSwingTimes = new List<DateTime>(value.Items.Select(i => i.Time));
 
             var fightDuration = TimeSpan.Zero;
-            var lastMasterSwingTime = DateTime.MinValue;
 
             for (var i = 0; i < fightStartTimes.Count; i++)
             {
+                // 🔴 必須宣告在迴圈裡面、每個窗口重置：宣告在外面時每個窗口的第一擊會跟「上一個窗口的最後一擊」
+                // 相減，把兩場拉怪之間的整段空檔算進戰鬥時間（總和退化成「最後一擊 − 最早一擊」），DPS 分母虛增。
+                var lastMasterSwingTime = DateTime.MinValue;
+
                 if (i >= fightEndTimes.Count) continue;
                 var start = fightStartTimes[i];
                 var end = fightEndTimes[i];

@@ -305,6 +305,14 @@ public class CactbotEventSource : EventSourceBase
         DispatchEvent(ev);
     }
 
+    // 給每個 tick 都可能送的事件用：沒有訂閱者時 DispatchEvent 什麼都不送，先判斷就省掉組 JObject；
+    // 有訂閱者時內容不變。只能用在已註冊的事件名（未註冊的名字原本會擲例外，這裡會變成靜默略過）。
+    private void DispatchToJsIfSubscribed(JSEvent detail)
+    {
+        if (HasSubscriber(detail.EventName()))
+            DispatchToJs(detail);
+    }
+
     // Events that we want to update as soon as possible.  Return next time this should be called.
     private int SendFastRateEvents()
     {
@@ -377,23 +385,38 @@ public class CactbotEventSource : EventSourceBase
                 send = true;
             }
 
-            var job = ffxiv.GetJobSpecificData(player.job);
-            if (job != null)
+            // 職業量表只在真的要送出、或位元組變了要和上次送出的量表比內容時才組成 JObject；
+            // 何時算「有變」、送出的內容與每個 tick 都組 JObject 時相同（量表內容只由職業＋這 8 個位元組決定）。
+            if (ffxiv.TryReadJobSpecificBytes(out var jobBytes) && ffxiv.HasJobSpecificData(player.job))
             {
-                if (send || !JToken.DeepEquals(job, notifyState.JobData))
+                JObject job = null;
+                if (!send && !notifyState.IsJobKey(player.job, jobBytes))
                 {
-                    notifyState.JobData = job;
-                    var ev = new JSEvents.PlayerChangedEvent(player)
+                    job = ffxiv.JobSpecificDataFromBytes(player.job, jobBytes);
+                    notifyState.JobData ??= ffxiv.JobSpecificDataFromBytes(notifyState.JobKeyJob, notifyState.JobKeyBytes);
+                    send = !JToken.DeepEquals(job, notifyState.JobData);
+                }
+
+                if (send)
+                {
+                    var subscribed = HasSubscriber(PlayerChangedEvent);
+                    if (subscribed)
+                        job ??= ffxiv.JobSpecificDataFromBytes(player.job, jobBytes);
+                    notifyState.SetJob(player.job, jobBytes, job);
+                    if (subscribed)
                     {
-                        jobDetail = job
-                    };
-                    DispatchToJs(ev);
+                        var ev = new JSEvents.PlayerChangedEvent(player)
+                        {
+                            jobDetail = job
+                        };
+                        DispatchToJs(ev);
+                    }
                 }
             }
             else if (send)
             {
                 // No job-specific data.
-                DispatchToJs(new JSEvents.PlayerChangedEvent(player));
+                DispatchToJsIfSubscribed(new JSEvents.PlayerChangedEvent(player));
             }
         }
 
@@ -409,7 +432,7 @@ public class CactbotEventSource : EventSourceBase
 
         if (logs.Count > 0)
         {
-            DispatchToJs(new JSEvents.LogEvent(logs));
+            DispatchToJsIfSubscribed(new JSEvents.LogEvent(logs));
             logs.Clear();
         }
 
@@ -751,6 +774,22 @@ public class CactbotEventSource : EventSourceBase
         public string ZoneName;
         public JObject JobData = new();
         public FFXIVProcess.EntityData Player;
+
+        // JobKeyValid 時 JobData 是由 (JobKeyJob, JobKeyBytes) 組出的量表；JobData 為 null＝還沒組，要比對時才組。
+        public bool JobKeyValid;
+        public FFXIVProcess.EntityJob JobKeyJob;
+        public ulong JobKeyBytes;
+
+        public bool IsJobKey(FFXIVProcess.EntityJob job, ulong bytes) =>
+            JobKeyValid && JobKeyJob == job && JobKeyBytes == bytes;
+
+        public void SetJob(FFXIVProcess.EntityJob job, ulong bytes, JObject built)
+        {
+            JobData = built;
+            JobKeyValid = true;
+            JobKeyJob = job;
+            JobKeyBytes = bytes;
+        }
     }
 
     private NotifyState notifyState = new();

@@ -2,7 +2,9 @@
 using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Threading;
 using Microsoft.Extensions.ObjectPool;
 
 namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
@@ -21,6 +23,12 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
         private int effectSize;
         
         protected ObjectPool<Combatant> combatantPool;
+
+        // 只是下一次結果清單的初始容量；多條執行緒互蓋無妨。
+        private int lastListCount;
+
+        private const int NameCacheSets = 512;
+        private readonly NameCacheEntry[] nameCache = new NameCacheEntry[NameCacheSets * 2];
 
         // Constants.
         protected const uint emptyID = 0xE0000000;
@@ -113,6 +121,18 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
             return ret;
         }
 
+        // 與 GetSelfCombatant()?.ID ?? 0 相同（同樣的指標、同樣讀 combatantSize 個位元組），只是不建物件。
+        private unsafe uint ReadSelfID()
+        {
+            IntPtr address = memory.ReadIntPtr(charmapAddress);
+            if (address == IntPtr.Zero)
+                return 0;
+            byte[] source = memory.GetByteArrayPooled(address, combatantSize);
+            var id = Unsafe.ReadUnaligned<uint>(ref source[SelfIdOffset]);
+            ArrayPool<byte>.Shared.Return(source);
+            return id;
+        }
+
         public Combatant GetCombatantFromAddress(IntPtr address, uint selfCharID = 0)
         {
             byte[] c = memory.GetByteArrayPooled(address, combatantSize);
@@ -121,11 +141,52 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
             return ret;
         }
 
-        public unsafe List<Combatant> GetCombatantList()
+        public List<Combatant> GetCombatantList()
         {
-            var result = new List<Combatant>();
-            var seen = new HashSet<uint>();
-            var mychar = GetSelfCombatant();
+            return GetCombatantList(false);
+        }
+
+        // 契約：筆數、順序、其餘欄位都和 GetCombatantList() 相同，只有 Effects 不保證有內容。
+        // 只給不讀 Effects 的呼叫端用。
+        public List<Combatant> GetCombatantListWithoutEffects()
+        {
+            return GetCombatantList(true);
+        }
+
+        public List<Combatant> GetCombatantListWithoutEffects(ObjectPool<Combatant> recycle)
+        {
+            return GetCombatantList(true, recycle);
+        }
+
+        public void GetCombatantListWithoutEffects(ObjectPool<Combatant> recycle, List<Combatant> into)
+        {
+            into.Clear();
+            GetCombatantList(true, recycle, into);
+        }
+
+        // 子類別若知道自己的 ID 在物件原始位元組的哪個偏移（與 GetCombatantFromByteArray 讀的是同一個欄位），
+        // 清單只為了取 ID 時就直接讀，不必整個建出來；-1＝照舊建物件。
+        protected virtual int SelfIdOffset => -1;
+
+        private unsafe List<Combatant> GetCombatantList(bool exceptEffects, ObjectPool<Combatant> recycle = null, List<Combatant> into = null)
+        {
+            // 沒給 into 時每次都是新清單（呼叫端可能留著）；只有容量照上一次的筆數先配好。
+            var result = into ?? new List<Combatant>(Volatile.Read(ref lastListCount));
+            // 去重用的 ID 表放在呼叫端堆疊上：刻意不用 [ThreadStatic] 快取，這裡跑在執行緒池上，
+            // 插件卸載後池執行緒退休會寫壞 GC 堆（dotnet/runtime#135441）。
+            Span<uint> seen = numMemoryCombatants <= 1024
+                ? stackalloc uint[numMemoryCombatants]
+                : new uint[numMemoryCombatants];
+            var seenCount = 0;
+            Combatant mychar = null;
+            uint mycharID;
+            if (SelfIdOffset >= 0)
+                mycharID = ReadSelfID();
+            else
+            {
+                mychar = GetSelfCombatant();
+                mycharID = mychar?.ID ?? 0;
+            }
 
             // Int64 pointer size
             const int sz = 8;
@@ -142,11 +203,13 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
                     continue;
 
                 byte[] c = memory.GetByteArrayPooled(p, combatantSize);
-                Combatant combatant = GetMobFromByteArray(c, mychar?.ID ?? 0);
+                Combatant combatant = exceptEffects
+                    ? GetMobFromByteArrayWithoutEffects(c, mycharID, recycle)
+                    : GetMobFromByteArray(c, mycharID);
                 ArrayPool<byte>.Shared.Return(c);
                 if (combatant == null)
                     continue;
-                if (seen.Contains(combatant.ID))
+                if (seen.Slice(0, seenCount).Contains(combatant.ID))
                 {
                     ReturnCombatant(combatant);
                     continue;
@@ -154,12 +217,48 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
 
                 // TODO: should this just be a dictionary? there are a lot of id lookups.
                 result.Add(combatant);
-                seen.Add(combatant.ID);
+                seen[seenCount++] = combatant.ID;
             }
             
+            Volatile.Write(ref lastListCount, result.Count);
             ArrayPool<byte>.Shared.Return(source);
             ReturnCombatant(mychar);
             return result;
+        }
+
+        // 結果與 FFXIVMemory.GetStringFromBytes(source, size) 相同：該函式只看這 size 個位元組，
+        // 所以位元組逐一相同就沿用上一份字串。多條執行緒共用：每格是不可變物件、整格換掉，
+        // 讀到哪一份都先比完整位元組才採用，互蓋只影響命中率。
+        protected unsafe string GetStringFromBytesCached(byte* source, int size)
+        {
+            var bytes = new ReadOnlySpan<byte>(source, size);
+            var hash = new HashCode();
+            hash.AddBytes(bytes);
+            int set = (hash.ToHashCode() & (NameCacheSets - 1)) * 2;
+
+            var first = Volatile.Read(ref nameCache[set]);
+            if (first != null && bytes.SequenceEqual(first.Key))
+                return first.Value;
+            var second = Volatile.Read(ref nameCache[set + 1]);
+            if (second != null && bytes.SequenceEqual(second.Key))
+                return second.Value;
+
+            var value = FFXIVMemory.GetStringFromBytes(source, size);
+            Volatile.Write(ref nameCache[set + 1], first);
+            Volatile.Write(ref nameCache[set], new NameCacheEntry(bytes.ToArray(), value));
+            return value;
+        }
+
+        private sealed class NameCacheEntry
+        {
+            public readonly byte[] Key;
+            public readonly string Value;
+
+            public NameCacheEntry(byte[] key, string value)
+            {
+                Key = key;
+                Value = value;
+            }
         }
 
         public void ReturnCombatant(Combatant combatant)
@@ -174,6 +273,12 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
 
         // Returns a combatant if the combatant is a mob or a PC.
         protected abstract unsafe Combatant GetMobFromByteArray(byte[] source, uint mycharID);
+
+        // 預設照常建 Effects、不用 recycle（結果不會錯，只是沒省到配置）；要省的版本自己覆寫。
+        protected virtual Combatant GetMobFromByteArrayWithoutEffects(byte[] source, uint mycharID, ObjectPool<Combatant> recycle)
+        {
+            return GetMobFromByteArray(source, mycharID);
+        }
 
         // Will return any kind of combatant, even if not a mob.
         // This function always returns a combatant object, even if empty.
