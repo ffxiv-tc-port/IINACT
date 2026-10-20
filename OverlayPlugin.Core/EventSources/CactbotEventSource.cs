@@ -33,6 +33,9 @@ public class CactbotEventSource : EventSourceBase
     // When true, the update function should reset notify state back to defaults.
     private bool resetNotifyState;
 
+    // 只在快速計時器上讀寫。真＝玩家狀態有變化沒送出（沒人訂閱），快取裡沒有現值。
+    private bool playerEventStale = true;
+
     private System.Timers.Timer fastUpdateTimer;
 
     // Held while the |fast_update_timer_| is running.
@@ -69,16 +72,20 @@ public class CactbotEventSource : EventSourceBase
         RegisterEventTypes(new List<string>()
         {
             "onForceReload",
-            "onGameExistsEvent",
-            "onGameActiveChangedEvent",
             "onLogEvent",
             "onImportLogEvent",
-            "onInCombatChangedEvent",
-            "onZoneChangedEvent",
             "onPlayerDied",
             "onPartyWipe",
-            "onPlayerChangedEvent",
             "onUserFileChanged",
+        });
+        // cactbot 只在頁面載入時要一次狀態（cactbotRequestState），晚連上的頁面要在訂閱當下拿到最後的值。
+        RegisterCachedEventTypes(new List<string>()
+        {
+            GameExistsEvent,
+            GameActiveChangedEvent,
+            InCombatChangedEvent,
+            ZoneChangedEvent,
+            PlayerChangedEvent,
         });
 
         // Broadcast onConfigChanged when a cactbotNotifyConfigChanged message occurs.
@@ -302,15 +309,38 @@ public class CactbotEventSource : EventSourceBase
             ["type"] = detail.EventName(),
             ["detail"] = JObject.FromObject(detail)
         };
-        DispatchEvent(ev);
+        if (IsStateEvent(detail.EventName()))
+            DispatchAndCacheEvent(ev);
+        else
+            DispatchEvent(ev);
     }
 
+    private static bool IsStateEvent(string name) =>
+        name is GameExistsEvent or GameActiveChangedEvent or InCombatChangedEvent or ZoneChangedEvent
+            or PlayerChangedEvent;
+
     // 給每個 tick 都可能送的事件用：沒有訂閱者時 DispatchEvent 什麼都不送，先判斷就省掉組 JObject；
-    // 有訂閱者時內容不變。只能用在已註冊的事件名（未註冊的名字原本會擲例外，這裡會變成靜默略過）。
-    private void DispatchToJsIfSubscribed(JSEvent detail)
+    // 有訂閱者時內容不變。只能用在已註冊的事件名（未註冊的名字原本會擲例外，這裡會變成靜默略過）。回傳有沒有送出。
+    private bool DispatchToJsIfSubscribed(JSEvent detail)
     {
-        if (HasSubscriber(detail.EventName()))
-            DispatchToJs(detail);
+        if (!HasSubscriber(detail.EventName()))
+            return false;
+        DispatchToJs(detail);
+        return true;
+    }
+
+    // 只在快速計時器上呼叫。沒人訂閱而略過的那次變化不在快取裡：作廢快取，等有人訂閱時補送一次。
+    private void MarkPlayerEventSent(bool sent)
+    {
+        if (sent)
+        {
+            playerEventStale = false;
+        }
+        else if (!playerEventStale)
+        {
+            playerEventStale = true;
+            eventCache[PlayerChangedEvent] = null;
+        }
     }
 
     // Events that we want to update as soon as possible.  Return next time this should be called.
@@ -385,6 +415,9 @@ public class CactbotEventSource : EventSourceBase
                 send = true;
             }
 
+            if (playerEventStale && HasSubscriber(PlayerChangedEvent))
+                send = true;
+
             // 職業量表只在真的要送出、或位元組變了要和上次送出的量表比內容時才組成 JObject；
             // 何時算「有變」、送出的內容與每個 tick 都組 JObject 時相同（量表內容只由職業＋這 8 個位元組決定）。
             if (ffxiv.TryReadJobSpecificBytes(out var jobBytes) && ffxiv.HasJobSpecificData(player.job))
@@ -411,12 +444,14 @@ public class CactbotEventSource : EventSourceBase
                         };
                         DispatchToJs(ev);
                     }
+
+                    MarkPlayerEventSent(subscribed);
                 }
             }
             else if (send)
             {
                 // No job-specific data.
-                DispatchToJsIfSubscribed(new JSEvents.PlayerChangedEvent(player));
+                MarkPlayerEventSent(DispatchToJsIfSubscribed(new JSEvents.PlayerChangedEvent(player)));
             }
         }
 
