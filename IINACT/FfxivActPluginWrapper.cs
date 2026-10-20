@@ -303,7 +303,8 @@ public partial class FfxivActPluginWrapper : IDisposable
         XivChatType type, int senderId, ref SeString sender, ref SeString message, ref bool isHandled)
     {
         var evenType = (uint)type;
-        var player = sender.TextValue;
+        // 戰鬥訊息沒有發話者；空清單的 TextValue 就是空字串，不必走一趟 LINQ＋StringBuilder。
+        var player = sender.Payloads.Count == 0 ? string.Empty : sender.TextValue;
         var text = message.TextValue.Replace('\r', ' ').Replace('\n', ' ')
                                     .Replace('|', '❘');
         var line = logFormat.FormatChatMessage(evenType, player, text);
