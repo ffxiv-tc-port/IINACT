@@ -9,10 +9,10 @@ namespace RainbowMage.OverlayPlugin
     internal class EventDispatcher
     {
         private ILogger _logger;
-        private Dictionary<string, Func<JObject, JToken>> handlers;
-        // eventFilter／stateCallbacks 只在註冊時整份換新（registrationLock 互斥），讀取端每次呼叫只讀一次欄位，
+        // handlers／eventFilter／stateCallbacks 只在註冊時整份換新（registrationLock 互斥），讀取端每次呼叫只讀一次欄位，
         // 拿到的一定是完整的一份：FSW、WebSocket、計時器執行緒可能在別的事件來源還在註冊時就派送。
         private readonly object registrationLock = new();
+        private volatile Dictionary<string, Func<JObject, JToken>> handlers;
         private volatile Dictionary<string, List<IEventReceiver>> eventFilter;
         private volatile Dictionary<string, Func<JObject>> stateCallbacks;
 
@@ -32,12 +32,15 @@ namespace RainbowMage.OverlayPlugin
 
         public void RegisterHandler(string name, Func<JObject, JToken> handler)
         {
-            if (handlers.ContainsKey(name))
+            lock (registrationLock)
             {
-                throw new Exception(string.Format(Resources.DuplicateHandlerError, name));
-            }
+                if (handlers.ContainsKey(name))
+                {
+                    throw new Exception(string.Format(Resources.DuplicateHandlerError, name));
+                }
 
-            handlers[name] = handler;
+                handlers = new Dictionary<string, Func<JObject, JToken>>(handlers) { [name] = handler };
+            }
         }
 
         public void RegisterEventTypes(List<string> names)
@@ -238,12 +241,12 @@ namespace RainbowMage.OverlayPlugin
         public JToken CallHandler(JObject e)
         {
             var handlerName = e["call"].ToString();
-            if (!handlers.ContainsKey(handlerName))
+            if (!handlers.TryGetValue(handlerName, out var handler))
             {
                 throw new Exception(string.Format(Resources.MissingHandlerError, handlerName));
             }
 
-            var result = handlers[handlerName](e);
+            var result = handler(e);
             if (result != null && result.Type != JTokenType.Object)
             {
                 throw new Exception("Handler response must be an object or null");
