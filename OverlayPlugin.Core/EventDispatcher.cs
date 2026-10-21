@@ -10,8 +10,11 @@ namespace RainbowMage.OverlayPlugin
     {
         private ILogger _logger;
         private Dictionary<string, Func<JObject, JToken>> handlers;
-        private Dictionary<string, List<IEventReceiver>> eventFilter;
-        private Dictionary<string, Func<JObject>> stateCallbacks;
+        // eventFilter／stateCallbacks 只在註冊時整份換新（registrationLock 互斥），讀取端每次呼叫只讀一次欄位，
+        // 拿到的一定是完整的一份：FSW、WebSocket、計時器執行緒可能在別的事件來源還在註冊時就派送。
+        private readonly object registrationLock = new();
+        private volatile Dictionary<string, List<IEventReceiver>> eventFilter;
+        private volatile Dictionary<string, Func<JObject>> stateCallbacks;
 
         public EventDispatcher(TinyIoCContainer container)
         {
@@ -39,9 +42,15 @@ namespace RainbowMage.OverlayPlugin
 
         public void RegisterEventTypes(List<string> names)
         {
-            foreach (var name in names)
+            lock (registrationLock)
             {
-                eventFilter[name] = new List<IEventReceiver>();
+                var next = new Dictionary<string, List<IEventReceiver>>(eventFilter);
+                foreach (var name in names)
+                {
+                    next[name] = new List<IEventReceiver>();
+                }
+
+                eventFilter = next;
             }
         }
 
@@ -52,42 +61,51 @@ namespace RainbowMage.OverlayPlugin
 
         public void RegisterEventType(string name, Func<JObject> initCallback)
         {
-            eventFilter[name] = new List<IEventReceiver>();
+            lock (registrationLock)
+            {
+                // 先換 stateCallbacks：Subscribe 看得到事件型別時一定也看得到它的初始回呼。
+                if (initCallback != null)
+                {
+                    stateCallbacks = new Dictionary<string, Func<JObject>>(stateCallbacks) { [name] = initCallback };
+                }
 
-            if (initCallback != null)
-                stateCallbacks[name] = initCallback;
+                eventFilter = new Dictionary<string, List<IEventReceiver>>(eventFilter)
+                {
+                    [name] = new List<IEventReceiver>()
+                };
+            }
         }
 
         public void Subscribe(string eventName, IEventReceiver receiver)
         {
-            if (!eventFilter.ContainsKey(eventName))
+            if (!eventFilter.TryGetValue(eventName, out var receivers))
             {
                 Log(LogLevel.Error, Resources.MissingEventSubError, eventName);
                 return;
             }
 
-            if (stateCallbacks.ContainsKey(eventName))
+            if (stateCallbacks.TryGetValue(eventName, out var initCallback))
             {
-                var ev = stateCallbacks[eventName]();
+                var ev = initCallback();
                 if (ev != null) receiver.HandleEvent(ev);
             }
 
-            lock (eventFilter[eventName])
+            lock (receivers)
             {
-                if (!eventFilter[eventName].Contains(receiver))
+                if (!receivers.Contains(receiver))
                 {
-                    eventFilter[eventName].Add(receiver);
+                    receivers.Add(receiver);
                 }
             }
         }
 
         public void Unsubscribe(string eventName, IEventReceiver receiver)
         {
-            if (eventFilter.ContainsKey(eventName))
+            if (eventFilter.TryGetValue(eventName, out var receivers))
             {
-                lock (eventFilter[eventName])
+                lock (receivers)
                 {
-                    eventFilter[eventName].Remove(receiver);
+                    receivers.Remove(receiver);
                 }
             }
         }
@@ -107,25 +125,25 @@ namespace RainbowMage.OverlayPlugin
         // an expensive JObject that would otherwise be thrown away.
         public bool HasSubscriber(string eventName)
         {
-            if (!eventFilter.ContainsKey(eventName))
+            if (!eventFilter.TryGetValue(eventName, out var receivers))
                 return false;
-            lock (eventFilter[eventName])
+            lock (receivers)
             {
-                return eventFilter[eventName].Count > 0;
+                return receivers.Count > 0;
             }
         }
 
         public void DispatchEvent(JObject e)
         {
             var eventType = e["type"].ToString();
-            if (!eventFilter.ContainsKey(eventType))
+            if (!eventFilter.TryGetValue(eventType, out var receivers))
             {
                 throw new Exception(string.Format(Resources.MissingEventDispatchError, eventType));
             }
 
-            lock (eventFilter[eventType])
+            lock (receivers)
             {
-                foreach (var receiver in eventFilter[eventType])
+                foreach (var receiver in receivers)
                 {
                     try
                     {

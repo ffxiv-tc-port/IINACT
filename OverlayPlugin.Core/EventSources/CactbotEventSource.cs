@@ -44,6 +44,7 @@ public class CactbotEventSource : EventSourceBase
     private string language;
     private string pcLocale;
     private List<FileSystemWatcher> watchers;
+    private static int fileWatcherFailureLogged;
 
     public const string ForceReloadEvent = "onForceReload";
     public const string GameExistsEvent = "onGameExistsEvent";
@@ -768,13 +769,27 @@ public class CactbotEventSource : EventSourceBase
 
             // We only care about file changes. New or renamed files don't matter if we don't have a reference to them
             // and adding a new reference causes an existing file to change.
+            // 跑在 IO 完成回呼上，漏出去的例外＝整個遊戲結束 ⇒ 整段接住、整個插件生命週期只記第一次。
             watcher.Changed += (_, e) =>
             {
-                DispatchEvent(JObject.FromObject(new
+                try
                 {
-                    type = "onUserFileChanged",
-                    file = e.FullPath,
-                }));
+                    DispatchEvent(JObject.FromObject(new
+                    {
+                        type = "onUserFileChanged",
+                        file = e.FullPath,
+                    }));
+                }
+                catch (Exception ex)
+                {
+                    if (Interlocked.Exchange(ref fileWatcherFailureLogged, 1) != 0)
+                        return;
+                    try
+                    {
+                        Log(LogLevel.Error, $"User file watcher failed; later failures are not logged: {ex}");
+                    }
+                    catch { }
+                }
             };
 
             watcher.EnableRaisingEvents = true;
