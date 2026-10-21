@@ -116,6 +116,8 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
             if (address == IntPtr.Zero)
                 return null;
             byte[] source = memory.GetByteArrayPooled(address, combatantSize);
+            if (source == null)
+                return null;
             var ret = GetCombatantFromByteArray(source, 0, true, true);
             ArrayPool<byte>.Shared.Return(source);
             return ret;
@@ -128,6 +130,8 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
             if (address == IntPtr.Zero)
                 return 0;
             byte[] source = memory.GetByteArrayPooled(address, combatantSize);
+            if (source == null)
+                return 0;
             var id = Unsafe.ReadUnaligned<uint>(ref source[SelfIdOffset]);
             ArrayPool<byte>.Shared.Return(source);
             return id;
@@ -136,6 +140,8 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
         public Combatant GetCombatantFromAddress(IntPtr address, uint selfCharID = 0)
         {
             byte[] c = memory.GetByteArrayPooled(address, combatantSize);
+            if (c == null)
+                return null;
             var ret = GetCombatantFromByteArray(c, selfCharID, false);
             ArrayPool<byte>.Shared.Return(c);
             return ret;
@@ -191,8 +197,11 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
             // Int64 pointer size
             const int sz = 8;
             byte[] source = memory.GetByteArrayPooled(charmapAddress, sz * numMemoryCombatants);
-            if (source == null || source.Length == 0)
+            if (source == null)
+            {
+                ReturnCombatant(mychar);
                 return result;
+            }
 
             for (int i = 0; i < numMemoryCombatants; i++)
             {
@@ -203,6 +212,8 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors.Combatant
                     continue;
 
                 byte[] c = memory.GetByteArrayPooled(p, combatantSize);
+                if (c == null)
+                    continue;
                 Combatant combatant = exceptEffects
                     ? GetMobFromByteArrayWithoutEffects(c, mycharID, recycle)
                     : GetMobFromByteArray(c, mycharID);

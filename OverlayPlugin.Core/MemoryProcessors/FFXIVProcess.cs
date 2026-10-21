@@ -260,12 +260,20 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors
 
         public bool GetInGameCombat()
         {
+            return TryGetInGameCombat(out var inCombat) && inCombat;
+        }
+
+        // 沒有行程／沒有位址時與 GetInGameCombat 一樣回 true＋false；只有讀記憶體失敗才回 false。
+        internal unsafe bool TryGetInGameCombat(out bool inCombat)
+        {
+            inCombat = false;
             if (!HasProcess() || in_combat_addr_ == IntPtr.Zero)
+                return true;
+            byte value;
+            if (ReadMemory((nint)(&value), in_combat_addr_, 1) != 0)
                 return false;
-            var bytes = Read8Pooled(in_combat_addr_, 1);
-            var ret = bytes[0] != 0;
-            ArrayPool<byte>.Shared.Return(bytes);
-            return ret;
+            inCombat = value != 0;
+            return true;
         }
 
         internal byte[] GetRawJobSpecificDataBytes()
@@ -397,14 +405,15 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors
         internal EntityData GetEntityDataPooled(IntPtr entity_ptr, int size)
         {
             var source = Read8Pooled(entity_ptr, size);
+            if (source == null)
+                return null;
             try
             {
                 return GetEntityDataFromByteArray(source);
             }
             finally
             {
-                if (source != null)
-                    ArrayPool<byte>.Shared.Return(source);
+                ArrayPool<byte>.Shared.Return(source);
             }
         }
 
@@ -429,17 +438,18 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors
             return data;
         }
         
+        // 讀失敗回 null（陣列已歸還）；成功時只有前 count 個位元組是這次讀到的，用完必須歸還 ArrayPool。
         internal unsafe byte[] Read8Pooled(IntPtr addr, int count)
         {
             var data = ArrayPool<byte>.Shared.Rent(count);
 
+            int result;
             fixed (byte* dataPtr = data)
-            {
-                var result = ReadMemory((nint)dataPtr, addr, count);
-                if (result != 0) return null;
-            }
-
-            return data;
+                result = ReadMemory((nint)dataPtr, addr, count);
+            if (result == 0)
+                return data;
+            ArrayPool<byte>.Shared.Return(data);
+            return null;
         }
 
         /// Reads |addr| in the |process_| and returns it as a 16bit ints. Returns null on error.

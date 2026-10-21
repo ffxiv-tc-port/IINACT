@@ -160,9 +160,17 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors
         /// </summary>
         public unsafe bool Peek(IntPtr address, byte[] buffer)
         {
+            return Peek(address, buffer, buffer.Length);
+        }
+
+        // 只讀 length 個位元組到 buffer 開頭；租來的陣列比要求的長，不能用 buffer.Length。
+        public unsafe bool Peek(IntPtr address, byte[] buffer, int length)
+        {
+            if ((uint)length > (uint)buffer.Length)
+                throw new ArgumentOutOfRangeException(nameof(length));
             fixed (byte* bufferPtr = buffer)
             {
-                var result = ReadMemory((nint)bufferPtr, address, buffer.Length);
+                var result = ReadMemory((nint)bufferPtr, address, length);
                 return result == 0;
             }
         }
@@ -185,12 +193,15 @@ namespace RainbowMage.OverlayPlugin.MemoryProcessors
         /// </summary>
         /// <param name="address">読み取る開始アドレス</param>
         /// <param name="length">読み取る長さ</param>
-        /// <returns></returns>
+        /// <returns>讀失敗回 null（陣列已歸還）。成功時只有前 length 個位元組是這次讀到的，
+        /// 後面是上一個租用者留下的內容；呼叫端用完必須歸還 ArrayPool。</returns>
         public byte[] GetByteArrayPooled(IntPtr address, int length)
         {
             var data = ArrayPool<byte>.Shared.Rent(length);
-            Peek(address, data);
-            return data;
+            if (Peek(address, data, length))
+                return data;
+            ArrayPool<byte>.Shared.Return(data);
+            return null;
         }
 
         /// <summary>

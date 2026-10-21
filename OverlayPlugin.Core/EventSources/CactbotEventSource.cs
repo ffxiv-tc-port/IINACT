@@ -373,7 +373,9 @@ public class CactbotEventSource : EventSourceBase
 
         // onInCombatChangedEvent: Fires when entering or leaving combat.
         var inActCombat = ActGlobals.oFormActMain.InCombat;
-        var inGameCombat = ffxiv.GetInGameCombat();
+        // 這一次讀不到就沿用上次的狀態，不送出假的「離開戰鬥」。
+        if (!ffxiv.TryGetInGameCombat(out var inGameCombat))
+            inGameCombat = notifyState.InGameCombat ?? false;
         if (!notifyState.InActCombat.HasValue || inActCombat != notifyState.InActCombat ||
             !notifyState.InGameCombat.HasValue || inGameCombat != notifyState.InGameCombat)
         {
