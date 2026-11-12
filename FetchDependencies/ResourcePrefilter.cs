@@ -17,6 +17,7 @@ internal static class ResourcePrefilter
         {
             ["10DC07DE16DA355B96154CB11550CAE7146A0124730E87C71466E84FD63FB33C"] = "FFXIV_ACT_Plugin 3.0.3.3",
             ["FF14EDCB4E99F377FB77F0E039E6CC44CAFAE6087B73B3D8A279D3E6A1CFEB8B"] = "FFXIV_ACT_Plugin 3.0.3.4",
+            ["8B4F1A9A7F05207D6549249EC117917D0E264DB195470A80FE597DC9B01C868E"] = "FFXIV_ACT_Plugin 3.0.3.5",
         };
 
     private const string KvpUintString = "System.Collections.Generic.KeyValuePair`2<System.UInt32,System.String>";

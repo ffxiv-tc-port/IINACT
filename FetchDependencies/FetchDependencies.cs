@@ -23,6 +23,10 @@ public class FetchDependencies
     /// </summary>
     private static readonly KnownPluginZip[] KnownPluginZips =
     {
+        new("3.0.3.5", "1A642F5700FF5AE4E3FE55A74D957606A56AC9350275BC69F27236CD4B2BAA92",
+            "https://softwareupdate.xivmac.com/sites/default/files/update_data/IINACT/FFXIV_ACT_Plugin_3.0.3.5.zip"),
+        new("3.0.3.5", "9E1487831E9B9D89A4452CB75CEC4CBEF578AB43B2246733EB1ECCE03CB28011",
+            "https://github.com/ravahn/FFXIV_ACT_Plugin/releases/download/3.0.3.5/FFXIV_ACT_Plugin_3.0.3.5.zip"),
         new("3.0.3.4", "B394278B3DD3342889F16DD1FB488D8FEC672D254A5E68D9B4CE5565A7846F71",
             "https://softwareupdate.xivmac.com/sites/default/files/update_data/IINACT/FFXIV_ACT_Plugin_3.0.3.4.zip"),
         new("3.0.3.4", "089306E497DD4B8FB79290472F006B889FD21FC3D3816CE41EF9A0300FEB2D11",
