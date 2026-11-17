@@ -74,7 +74,7 @@ public partial class FfxivActPluginWrapper : IDisposable
 
     public unsafe FfxivActPluginWrapper(
         Configuration configuration, ClientLanguage dalamudClientLanguage, IChatGui chatGui, IFramework framework,
-        ICondition condition)
+        ICondition condition, IDataManager dataManager)
     {
         this.configuration = configuration;
         this.dalamudClientLanguage = dalamudClientLanguage;
@@ -87,7 +87,9 @@ public partial class FfxivActPluginWrapper : IDisposable
         ffxivActPlugin.ConfigureIOC();
 
         iocContainer = ffxivActPlugin._iocContainer;
-        iocContainer.Resolve<ResourceManager>().LoadResources();
+        var resources = iocContainer.Resolve<ResourceManager>();
+        resources.LoadResources();
+        BackfillResourceNames(resources, dataManager);
 
         Subscription = iocContainer.Resolve<DataSubscription>();
         ffxivActPlugin.SetProperty("DataSubscription", Subscription);
@@ -138,6 +140,27 @@ public partial class FfxivActPluginWrapper : IDisposable
             mobDataOffsets[i] = mobData + (i * combatantSize);
 
         this.framework.Update += MobDataRefresh;
+    }
+
+    /// <summary>建構子內、StartMemory 之前呼叫（見 <see cref="ResourceNameBackfill"/> 的執行緒契約）。失敗只記一行，名稱維持原樣。</summary>
+    private void BackfillResourceNames(ResourceManager resources, IDataManager dataManager)
+    {
+        var started = Environment.TickCount64;
+        try
+        {
+            var added = ResourceNameBackfill.Apply(
+                resources, ClientLanguage, dataManager.GetExcelSheet<Lumina.Excel.Sheets.Action>(),
+                dataManager.GetExcelSheet<Lumina.Excel.Sheets.Status>(),
+                dataManager.GetExcelSheet<Lumina.Excel.Sheets.TerritoryType>(),
+                dataManager.GetExcelSheet<Lumina.Excel.Sheets.ContentFinderCondition>());
+            Plugin.Log.Information(
+                $"[名稱補齊] 以遊戲資料補上 FFXIV_ACT_Plugin 名稱表沒有的項目（{ClientLanguage}）：" +
+                $"技能 {added.Actions}、狀態 {added.Statuses}、區域 {added.Territories}（{Environment.TickCount64 - started} ms）");
+        }
+        catch (Exception ex)
+        {
+            Plugin.Log.Warning(ex, "[名稱補齊] 讀遊戲資料失敗，新技能／區域維持 FFXIV_ACT_Plugin 原本的 unknown 顯示");
+        }
     }
 
     private Language ClientLanguage =>

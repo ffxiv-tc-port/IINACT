@@ -194,7 +194,7 @@ git merge xom/dalamud
 # 修改 Machina/Machina.csproj：net10.0 → net9.0
 
 # push 更新
-git push origin tc/net9
+git push origin tc-7.30
 
 # 回到 IINACT，更新 submodule 指向
 cd ..
@@ -343,7 +343,7 @@ dotnet build IINACT/IINACT.csproj -c Release
 - [ ] `git merge upstream/master`（TC opcodes 在這裡）
 - [ ] `git merge xom/dalamud`（若有 Dalamud 相關更新）
 - [ ] 若 runtime 升版：`Machina.FFXIV.csproj` + `Machina.csproj` 降回 `net9.0`
-- [ ] `git push origin tc/net9`
+- [ ] `git push origin tc-7.30`
 
 ### IINACT 更新
 
