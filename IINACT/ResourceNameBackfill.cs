@@ -10,10 +10,12 @@ namespace IINACT;
 
 // 本檔契約：FFXIV_ACT_Plugin 內嵌的名稱表跟不上台服改版，新技能／狀態／區域會顯示成 unknown。
 // 只在 ResourceManager.LoadResources() 之後、任何解析執行緒啟動之前呼叫一次 ⇒ 直接改 SortedDictionary 不加鎖。
-// 只新增名稱表裡沒有的鍵、遊戲表名稱空白的列不加；既有的值（含 _rsv_ 佔位）一個都不改。
+// 只新增名稱表裡沒有的鍵，以及把技能／狀態的 _rsv_ 佔位值換成遊戲名稱；遊戲表名稱空白或本身也是 _rsv_ 的列不動，
+// 其他既有值一個都不改。
 internal static class ResourceNameBackfill
 {
-    internal readonly record struct Counts(int Actions, int Statuses, int Territories);
+    internal readonly record struct Counts(
+        int Actions, int Statuses, int Territories, int ActionsReplaced, int StatusesReplaced);
 
     /// <param name="language">解析設定用的語言；名稱只寫進這個語言的表（遊戲表給的就是當下語言）。</param>
     public static Counts Apply(
@@ -21,7 +23,7 @@ internal static class ResourceNameBackfill
         ExcelSheet<StatusSheet> statuses, ExcelSheet<TerritoryTypeSheet> territories,
         ExcelSheet<ContentFinderConditionSheet> contents)
     {
-        var actionCount = 0;
+        int actionCount = 0, actionReplaced = 0;
         if (resources._actionList is ActionList actionList &&
             actionList._actionList.TryGetValue(language, out var actionNames) && actionNames != null)
         {
@@ -29,21 +31,21 @@ internal static class ResourceNameBackfill
             var itemActions = actionList._itemActionList;
             foreach (var row in actions)
             {
-                if (row.Name.IsEmpty || actionNames.ContainsKey(row.RowId) || itemActions?.ContainsKey(row.RowId) == true)
+                if (row.Name.IsEmpty || itemActions?.ContainsKey(row.RowId) == true)
                     continue;
-                actionCount += TryAdd(actionNames, row.RowId, row.Name.ExtractText());
+                Fill(actionNames, row.RowId, row, static r => r.Name.ExtractText(), ref actionCount, ref actionReplaced);
             }
         }
 
-        var statusCount = 0;
+        int statusCount = 0, statusReplaced = 0;
         if (resources._statusList is StatusList statusList &&
             statusList._statusList.TryGetValue(language, out var statusNames) && statusNames != null)
         {
             foreach (var row in statuses)
             {
-                if (row.Name.IsEmpty || statusNames.ContainsKey(row.RowId))
+                if (row.Name.IsEmpty)
                     continue;
-                statusCount += TryAdd(statusNames, row.RowId, row.Name.ExtractText());
+                Fill(statusNames, row.RowId, row, static r => r.Name.ExtractText(), ref statusCount, ref statusReplaced);
             }
         }
 
@@ -64,7 +66,7 @@ internal static class ResourceNameBackfill
             }
         }
 
-        return new Counts(actionCount, statusCount, territoryCount);
+        return new Counts(actionCount, statusCount, territoryCount, actionReplaced, statusReplaced);
     }
 
     /// <summary>
@@ -95,9 +97,34 @@ internal static class ResourceNameBackfill
         return names;
     }
 
+    /// <summary>判準與 FFXIV_ACT_Plugin 的 ResourceFile 相同（前綴、不分大小寫）。</summary>
+    internal static bool IsPlaceholder(string value) => value.StartsWith("_rsv_", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>鍵不在就新增；值是 _rsv_ 佔位才取代。名稱只在需要寫入時才解出來。</summary>
+    private static void Fill<TRow>(
+        SortedDictionary<uint, string> names, uint id, TRow row, Func<TRow, string> getName, ref int added, ref int replaced)
+    {
+        if (!names.TryGetValue(id, out var existing))
+        {
+            added += TryAdd(names, id, getName(row));
+            return;
+        }
+
+        if (!IsPlaceholder(existing))
+            return;
+        var name = getName(row);
+        if (!IsUsableName(name))
+            return;
+        names[id] = name;
+        replaced++;
+    }
+
+    /// <summary>遊戲表沒公開的名稱在客戶端資料裡也是 _rsv_ 佔位（實際名稱由伺服器另送），視同沒有名稱。</summary>
+    private static bool IsUsableName(string name) => !string.IsNullOrWhiteSpace(name) && !IsPlaceholder(name);
+
     private static int TryAdd(SortedDictionary<uint, string> names, uint id, string name)
     {
-        if (string.IsNullOrWhiteSpace(name))
+        if (!IsUsableName(name))
             return 0;
         names.Add(id, name);
         return 1;

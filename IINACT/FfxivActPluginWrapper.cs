@@ -155,7 +155,8 @@ public partial class FfxivActPluginWrapper : IDisposable
                 dataManager.GetExcelSheet<Lumina.Excel.Sheets.ContentFinderCondition>());
             Plugin.Log.Information(
                 $"[名稱補齊] 以遊戲資料補上 FFXIV_ACT_Plugin 名稱表沒有的項目（{ClientLanguage}）：" +
-                $"技能 {added.Actions}、狀態 {added.Statuses}、區域 {added.Territories}（{Environment.TickCount64 - started} ms）");
+                $"技能 {added.Actions}、狀態 {added.Statuses}、區域 {added.Territories}；" +
+                $"_rsv_ 佔位改用遊戲名稱：技能 {added.ActionsReplaced}、狀態 {added.StatusesReplaced}（{Environment.TickCount64 - started} ms）");
         }
         catch (Exception ex)
         {
