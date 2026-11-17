@@ -328,6 +328,9 @@ namespace RainbowMage.OverlayPlugin
                     return "cn";
                 case Language.Korean:
                     return "ko";
+                // cactbot 以 "tc" 對應 zh-TW；不可回 "cn"（會改走國服記憶體偏移與簡體 regex）。
+                case Language.TraditionalChinese:
+                    return "tc";
                 default:
                     return null;
             }
