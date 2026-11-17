@@ -609,17 +609,17 @@ public unsafe class ZoneDownHookManager : IDisposable
     /// </summary>
     private static readonly Dictionary<string, TcObfuscationTable> TcObfuscationTables = new()
     {
-        ["2026.09.14.0000.0000"] = new TcObfuscationTable(
-            InitZone: 0x0EB, UnknownObfuscationInit: 0x345, ObfuscationEnabledMode: 0x97, KeyTableEntries: 233,
+        ["2026.11.05.0000.0000"] = new TcObfuscationTable(
+            InitZone: 0x394, UnknownObfuscationInit: 0x3B0, ObfuscationEnabledMode: 0xFA, KeyTableEntries: 248,
             Opcodes: new Dictionary<string, int>
             {
-                { "PlayerSpawn", 0x37C }, { "NpcSpawn", 0x374 }, { "NpcSpawn2", 0x2D6 },
-                { "ActionEffect01", 0x1BE }, { "ActionEffect02", 0x336 }, { "ActionEffect04", 0x335 },
-                { "ActionEffect08", 0x13C }, { "ActionEffect16", 0x133 }, { "ActionEffect24", 0x07A },
-                { "ActionEffect32", 0x1DF }, { "StatusEffectList", 0x300 }, { "StatusEffectList3", 0x16E },
-                { "Examine", 0x1E1 }, { "UpdateGearset", 0x140 }, { "UpdateParty", 0x30C },
-                { "ActorControl", 0x325 }, { "ActorCast", 0x35D },
-                { "UnknownEffect01", 0x365 }, { "UnknownEffect16", 0x0C3 },
+                { "PlayerSpawn", 0x09F }, { "NpcSpawn", 0x0C6 }, { "NpcSpawn2", 0x3D9 },
+                { "ActionEffect01", 0x368 }, { "ActionEffect02", 0x08E }, { "ActionEffect04", 0x093 },
+                { "ActionEffect08", 0x14F }, { "ActionEffect16", 0x0AF }, { "ActionEffect24", 0x26B },
+                { "ActionEffect32", 0x0BA }, { "StatusEffectList", 0x353 }, { "StatusEffectList3", 0x181 },
+                { "Examine", 0x330 }, { "UpdateGearset", 0x1A4 }, { "UpdateParty", 0x088 },
+                { "ActorControl", 0x399 }, { "ActorCast", 0x0A6 },
+                { "UnknownEffect01", 0x2E1 }, { "UnknownEffect16", 0x1B6 },
             }),
     };
 

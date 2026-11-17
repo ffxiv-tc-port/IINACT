@@ -124,7 +124,7 @@ RegionID = Region.TraditionalChinese,
 > 當成三筆 opcodeKeyTable」實作會讓所有傷害數值被 XOR 成六萬多、DPS 差兩個數量級。
 > 下面是離線反組譯 ＋ 實機封包向量驗證之後的正確版本。
 
-**台服 `PacketDispatcher::OnReceivePacket` 與國際服 7.3 世代同構**（7.20、7.25 皆然）：
+**台服 `PacketDispatcher::OnReceivePacket` 與國際服 7.3 世代同構**（7.20、7.25、7.3 皆然）：
 
 ```
 baseKey        = Key[opcode % 3] - GameSessionRandom - LastPacketRandom
@@ -134,7 +134,8 @@ ActionEffect   : *(int*)(ipc + 24)         -= baseKey
 ```
 
 - `opcodeKeyTable` 是 **`.rdata` 裡的 int32 靜態表**，長度＝取模數 N：7.20 是 96（`0x21A4510`）、
-  **7.25 是 233**（`0x21B7BA0`，指令改成 `imul eax, eax, 0E9h`）。Unscrambler73 用 `% 表長`，所以表長必須精確。
+  7.25 是 233（`0x21B7BA0`，指令改成 `imul eax, eax, 0E9h`）、**7.3 是 248**（`0x21AD900`，`imul eax, eax, 0F8h`）。
+  Unscrambler73 用 `% 表長`，所以表長必須精確。
 - **IINACT 原有的 `OpcodeKeyTableSignature`（`?? ?? ?? 2B C8 ?? 8B ?? 8A ?? ?? ?? ?? 41 81`）
   在台服照樣命中**。⇒ **位址不要寫死**，走簽章掃描。
 - 台服要用 **`Unscrambler73`**，不是 `Unscrambler72`（7.2 世代把 `opcodeBasedKey` 寫死成每個 opcode
@@ -212,26 +213,37 @@ python ~/.claude/tools/sigscan/iinact_tc_opcodes_derive.py
 的做法）對 BossMod `ServerIPC.cs` PacketID 的局部位移 ④用大小過濾候選。
 輸出分三段：A＝解混淆 opcode（直接填 `TcObfuscationTables`）、D＝Machina `TraditionalChinese.txt` 與
 OverlayPlugin `opcodes.jsonc` 的建議值。**`AUTO*` 列可直接採用；`MANUAL` 列要自己反組譯處理函式確認**
-（7.25 時只剩 CEDirector 認不出來，所以 7.25 的 jsonc 刻意不放它）。
-`--expect-725` 是回歸測試：改工具後拿 7.25 執行檔跑，必須 PASS。
+（7.25、7.3 都只剩 CEDirector 認不出來，所以 jsonc 刻意不放它）。
+`--expect-725` 是回歸測試：改工具後拿 7.25 執行檔跑，必須 PASS（`--selftest` 會自動找封存的 7.25 執行檔跑它）。
 
-7.25（`2026.09.14.0000.0000`）的結果（2026-09-29 逐支人工確認，推導細節見 IINACT 該次 commit 訊息）：
+第二條獨立證據（不經 BossMod）：拿上一版人工確認過、已提交的表，比對舊／新執行檔「同一個處理函式」：
 
-| 名稱 | 7.25 | 名稱 | 7.25 |
+```bash
+python ~/.claude/tools/sigscan/iinact_tc_opcodes_crossver.py --old-exe <封存的舊版執行檔> \
+    --old-ver <舊版 ffxivgame.ver> --new-derive <上面那支的輸出檔>
+```
+
+在**動表之前**跑（舊表從 repo HEAD 讀；動過表之後加 `--iinact-rev <改表前的 commit>`）。它同時模擬 IINACT
+執行期的 opcodeKeyTable 長度偵測（必須＝取模數×4）與 ZoneDown 特徵碼第 3 個命中是否仍是同一支函式。
+
+7.3（`2026.11.05.0000.0000`）的結果（2026-11-17 兩支工具逐筆一致、0 衝突；細節見 IINACT 該次 commit 訊息）：
+
+| 名稱 | 7.3（7.25） | 名稱 | 7.3（7.25） |
 |---|---|---|---|
-| StatusEffectList | 0x300 | ActorControl | 0x325 |
-| StatusEffectList2（博茲雅變體） | 0x352 | ActorControlSelf | 0x111 |
-| StatusEffectList3 | 0x16E | ActorControlTarget | 0x25A |
-| BossStatusEffectList | 0x1EC | UpdateHpMpTp | 0x38F |
-| StatusEffectListForay3（新月島） | 0x19D | PlayerSpawn | 0x37C |
-| Ability1 / 8 / 16 | 0x1BE / 0x13C / 0x133 | NpcSpawn / NpcSpawn2 | 0x374 / 0x2D6 |
-| Ability24 / 32 | 0x07A / 0x1DF | ActorMove / ActorSetPos | 0x229 / 0x279 |
-| ActorCast | 0x35D | ActorGauge | 0x0FD |
-| EffectResult / EffectResultBasic | 0x311 / 0x162 | PresetWaymark / Waymark | 0x1C9 / 0x338 |
-| SystemLogMessage | 0x2CF | | |
+| StatusEffectList | 0x353（0x300） | ActorControl | 0x399（0x325） |
+| StatusEffectList2（博茲雅變體） | 0x17F（0x352） | ActorControlSelf | 0x20A（0x111） |
+| StatusEffectList3 | 0x181（0x16E） | ActorControlTarget | 0x317（0x25A） |
+| BossStatusEffectList | 0x29D（0x1EC） | UpdateHpMpTp | 0x24D（0x38F） |
+| StatusEffectListForay3（新月島） | 0x295（0x19D） | PlayerSpawn | 0x09F（0x37C） |
+| Ability1 / 8 / 16 | 0x368 / 0x14F / 0x0AF | NpcSpawn / NpcSpawn2 | 0x0C6 / 0x3D9 |
+| Ability24 / 32 | 0x26B / 0x0BA | ActorMove / ActorSetPos | 0x0DE / 0x3A9 |
+| ActorCast | 0x0A6（0x35D） | ActorGauge | 0x3DB（0x0FD） |
+| EffectResult / EffectResultBasic | 0x3E2 / 0x118 | PresetWaymark / Waymark | 0x24A / 0x3C9 |
+| SystemLogMessage | 0x1E8（0x2CF） | | |
 
-只在解混淆表出現的：ActionEffect02 0x336、ActionEffect04 0x335、Examine 0x1E1、UpdateGearset 0x140、
-UpdateParty 0x30C、UnknownEffect01 0x365、UnknownEffect16 0x0C3；金鑰初始化 opcode 0x0EB / 0x345、模式位元組 0x97。
+只在解混淆表出現的：ActionEffect02 0x08E、ActionEffect04 0x093、Examine 0x330、UpdateGearset 0x1A4、
+UpdateParty 0x088、UnknownEffect01 0x2E1、UnknownEffect16 0x1B6；金鑰初始化 opcode 0x394 / 0x3B0、模式位元組 0xFA
+（這三個常數 IINACT 執行期不讀：只有 Unscrambler 的 KeyGenerator7x 讀模式位元組，而沒有任何呼叫端用 KeyGenerator）。
 
 > ⚠️ NpcSpawn / NpcSpawn2 的解混淆分支位元組相同；名字靠 payload 大小分（0x290 → NpcSpawn、0x400 → NpcSpawn2）。
 > 同理 EffectResult 1/4/8/16、SystemLogMessage 1/2/4/8/16 共用同一個 case 本體，只能靠大小分辨，
@@ -266,6 +278,7 @@ print(f"找到 {len(matches)} 個 match")  # 預期 3 個，ZoneDownHook 用 ind
 > ⚠️ 3 個命中呼叫的是**三個不同**的函式（同一份樣板的三種連線），不是呼叫點收斂；
 > IINACT 靠位址順序取第 3 個＝區域連線。7.25 仍成立（實機 log 裡有只會走區域連線的封包進來），
 > 但這是「順序剛好沒變」，改版後要重看：hook 錯連線的症狀是 ACT 完全沒有戰鬥行、也沒有任何錯誤。
+> 7.3 用 `iinact_tc_opcodes_crossver.py` 的 G 段確認：仍 3 個命中，三個目標依序對回 7.25 同一支函式（.pdata 25/25）。
 
 ### 5-2. `PacketDispatcher` vtable 位移是否仍正確
 
@@ -295,8 +308,8 @@ dotnet build IINACT/IINACT.csproj -c Release
 啟動後在 Dalamud log 中確認以下訊息：
 
 ```
-[ZoneDownHookManager] 台服 2026.09.14.0000.0000：opcodeKeyTable 模組位移 0x21B7BA0、233 筆 int32（與這個版本的取模數一致）
-[效果解密診斷] 監看中：ActionEffect01=0x01BE、…
+[ZoneDownHookManager] 台服 2026.11.05.0000.0000：opcodeKeyTable 模組位移 0x21AD900、248 筆 int32（與這個版本的取模數一致）
+[效果解密診斷] 監看中：ActionEffect01=0x0368、…
 [效果解密診斷] 判定：未用槽 N 個解密後全為 0 ✅ 解密正確（…）      ← 第一次有 ActionEffect 時出現
 ```
 
@@ -313,8 +326,9 @@ dotnet build IINACT/IINACT.csproj -c Release
 | 項目 | 狀態 | 說明 |
 |---|---|---|
 | 解混淆正確性 | ✅ 2026-08-13 已驗證 | 台服＝Unscrambler73 演算法 ＋ `.rdata` 靜態 `opcodeKeyTable`（簽章掃描取址）。10 筆實機封包向量重放通過：未用效果槽解密後全為 0、型別 0x1B StartActionCombo 的值等於解出來的 actionId。工具見 3-3 節 |
-| 7.25 opcode | ⚠️ 離線推導、待實機 ✅ | 2026-09-29 由執行檔離線推導（4-3 節）；ActionEffect 解密要等實機出現 `✅ 解密正確` 才算閉環 |
-| OverlayPlugin CEDirector（7.25） | ⚠️ 未辨識 | 7.25 的 `opcodes.jsonc` 刻意不放，只有這條自訂 log line 停用 |
+| 7.25 opcode | ✅ 實機確認 | 2026-09-29 離線推導；10-26～11-15 實機 log 14 次 `✅ 解密正確`、0 次殘留 |
+| 7.3 opcode | ⚠️ 離線推導、待實機 ✅ | 2026-11-17 兩支工具交叉驗證（4-3 節）；表長已由 7.3 實機 log 證實（`opcodeKeyTableSize 3E0`＝248 筆）；ActionEffect 解密要等實機出現 `✅ 解密正確` 才算閉環 |
+| OverlayPlugin CEDirector（7.25、7.3） | ⚠️ 未辨識 | `opcodes.jsonc` 刻意不放，只有這條自訂 log line 停用 |
 | PacketDispatcher 初始化時序 | ⚠️ 未驗證 | Plugin 載入早期 `GetInstance()` 可能回傳 null |
 | TC locale 在 cactbot overlay | ℹ️ 設計決策 | TC 沒有獨立 locale → fallback 到 English intl（`FFXIVProcessIntl` offset 正確） |
 | FetchDependencies CN URL | ℹ️ 無需修改 | TC 使用 Global FFXIV_ACT_Plugin（iinact.com），非 cninact.diemoe.net |

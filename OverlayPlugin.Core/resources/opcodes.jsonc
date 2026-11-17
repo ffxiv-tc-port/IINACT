@@ -162,53 +162,53 @@
         }
     },
     "TraditionalChinese": {
-        "2026.09.14.0000.0000": {
-            // TC 7.25; exact match on ffxivgame.ver. Derived offline from the 7.25 client
-            // (handler semantics + recorded payload sizes, cross-checked against packet-type order);
-            // derivation is in the IINACT commit message. CEDirector is deliberately absent:
-            // not identified for 7.25, so only that line stays off. Countdown/CountdownCancel use the v730 layout.
+        "2026.11.05.0000.0000": {
+            // TC 7.3; exact match on ffxivgame.ver. Derived offline from the 7.3 client and cross-checked
+            // against the 7.25 values by handler identity + packet-type order (see the IINACT commit message).
+            // CEDirector is deliberately absent: not identified for 7.25 or 7.3, so only that line stays off.
+            // Countdown/CountdownCancel use the v730 layout (7.3 payload sizes 0x40/0x38, same as 7.25).
             "MapEffect": {
-                "opcode": 593,
+                "opcode": 106,
                 "size": 0
             },
             "MapEffect4": {
-                "opcode": 549,
+                "opcode": 295,
                 "size": 0
             },
             "MapEffect8": {
-                "opcode": 369,
+                "opcode": 904,
                 "size": 0
             },
             "MapEffect12": {
-                "opcode": 345,
+                "opcode": 356,
                 "size": 0
             },
             "RSVData": {
-                "opcode": 834,
+                "opcode": 544,
                 "size": 0
             },
             "NpcYell": {
-                "opcode": 845,
+                "opcode": 342,
                 "size": 0
             },
             "BattleTalk2": {
-                "opcode": 540,
+                "opcode": 744,
                 "size": 0
             },
             "Countdown": {
-                "opcode": 336,
+                "opcode": 264,
                 "size": 0
             },
             "CountdownCancel": {
-                "opcode": 743,
+                "opcode": 339,
                 "size": 0
             },
             "ActorMove": {
-                "opcode": 553,
+                "opcode": 222,
                 "size": 0
             },
             "ActorSetPos": {
-                "opcode": 633,
+                "opcode": 937,
                 "size": 0
             }
         }
