@@ -105,6 +105,8 @@ public partial class FfxivActPluginWrapper : IDisposable
         chatLogLineWriter = new ChatLogLineWriter(logFormat, logOutput);
         if (!chatLogLineWriter.FastFormat)
             Plugin.Log.Information("Chat log lines: FFXIV_ACT_Plugin formats them differently than expected, using its formatter for every message");
+        else if (!chatLogLineWriter.DirectWrite)
+            Plugin.Log.Information("Chat log lines: FFXIV_ACT_Plugin LogOutput.WriteLine differs from the expected format, using it for every message");
 
         var scanMemory = (ScanMemory)ffxivActPlugin._dataCollection._scanMemory;
 
