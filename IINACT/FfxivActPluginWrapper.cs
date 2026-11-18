@@ -65,6 +65,7 @@ public partial class FfxivActPluginWrapper : IDisposable
 
     private readonly ILogOutput logOutput;
     private readonly ILogFormat logFormat;
+    private readonly ChatLogLineWriter chatLogLineWriter;
     private readonly IProcessManager processManager;
 
     public DataCollectionSettingsEventArgs DataCollectionSettings = null!;
@@ -101,6 +102,9 @@ public partial class FfxivActPluginWrapper : IDisposable
         logOutput = ffxivActPlugin._dataCollection._logOutput;
         logFormat = ffxivActPlugin._dataCollection._logFormat;
         parserLogQueue = (logOutput as LogOutput)?._LogQueue;
+        chatLogLineWriter = new ChatLogLineWriter(logFormat, logOutput);
+        if (!chatLogLineWriter.FastFormat)
+            Plugin.Log.Information("Chat log lines: FFXIV_ACT_Plugin formats them differently than expected, using its formatter for every message");
 
         var scanMemory = (ScanMemory)ffxivActPlugin._dataCollection._scanMemory;
 
@@ -324,17 +328,8 @@ public partial class FfxivActPluginWrapper : IDisposable
     }
 
     private void OnChatMessage(
-        XivChatType type, int senderId, ref SeString sender, ref SeString message, ref bool isHandled)
-    {
-        var evenType = (uint)type;
-        // 戰鬥訊息沒有發話者；空清單的 TextValue 就是空字串，不必走一趟 LINQ＋StringBuilder。
-        var player = sender.Payloads.Count == 0 ? string.Empty : sender.TextValue;
-        var text = message.TextValue.Replace('\r', ' ').Replace('\n', ' ')
-                                    .Replace('|', '❘');
-        var line = logFormat.FormatChatMessage(evenType, player, text);
-
-        logOutput.WriteLine(LogMessageType.ChatLog, GameServerTime.CurrentServerTime, line);
-    }
+        XivChatType type, int senderId, ref SeString sender, ref SeString message, ref bool isHandled) =>
+        chatLogLineWriter.Write(type, sender, message);
 
     private void SetupActWrapper()
     {
