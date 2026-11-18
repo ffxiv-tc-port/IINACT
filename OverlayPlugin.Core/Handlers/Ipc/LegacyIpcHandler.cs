@@ -23,8 +23,17 @@ internal class LegacyIpcHandler : LegacyHandler
             ex => Logger.Log(LogLevel.Error, $"IPC send to {name} failed: {ex}"));
         
         Receiver.RegisterAction(DataReceived);
-        
-        Start();
+
+        // 建構失敗時呼叫端拿不到這個物件、無從處置：先退訂再重擲，不留孤兒訂閱。
+        try
+        {
+            Start();
+        }
+        catch
+        {
+            Dispose();
+            throw;
+        }
     }
 
     protected override void Send(JObject e) => Outbox.Post(e);
