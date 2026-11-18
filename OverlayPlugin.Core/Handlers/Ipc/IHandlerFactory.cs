@@ -1,5 +1,6 @@
 using Dalamud.Plugin;
 using Dalamud.Plugin.Ipc;
+using Dalamud.Plugin.Services;
 using Newtonsoft.Json.Linq;
 
 namespace RainbowMage.OverlayPlugin.Handlers.Ipc;
@@ -14,26 +15,27 @@ internal interface IHandlerFactory
         var logger = container.Resolve<ILogger>();
         var dispatcher = container.Resolve<EventDispatcher>();
         var repository = container.Resolve<FFXIVRepository>();
-        return CreateHandler(name, receiver, sender, logger, dispatcher, repository);
+        var framework = container.Resolve<IFramework>();
+        return CreateHandler(name, receiver, sender, logger, dispatcher, repository, framework);
     }
 
     protected IHandler CreateHandler(
         string name, ICallGateProvider<JObject, bool> receiver, ICallGateSubscriber<JObject, bool> sender,
-        ILogger logger, EventDispatcher eventDispatcher, FFXIVRepository repository);
+        ILogger logger, EventDispatcher eventDispatcher, FFXIVRepository repository, IFramework framework);
 }
 
 internal class HandlerFactory : IHandlerFactory
 {
     public IHandler CreateHandler(
         string name, ICallGateProvider<JObject, bool> receiver, ICallGateSubscriber<JObject, bool> sender,
-        ILogger logger, EventDispatcher eventDispatcher, FFXIVRepository repository) =>
-        new IpcHandler(name, receiver, sender, logger, eventDispatcher);
+        ILogger logger, EventDispatcher eventDispatcher, FFXIVRepository repository, IFramework framework) =>
+        new IpcHandler(name, receiver, sender, logger, eventDispatcher, framework);
 }
 
 internal class LegacyHandlerFactory : IHandlerFactory
 {
     public IHandler CreateHandler(
         string name, ICallGateProvider<JObject, bool> receiver, ICallGateSubscriber<JObject, bool> sender,
-        ILogger logger, EventDispatcher eventDispatcher, FFXIVRepository repository) =>
-        new LegacyIpcHandler(name, receiver, sender, logger, eventDispatcher, repository);
+        ILogger logger, EventDispatcher eventDispatcher, FFXIVRepository repository, IFramework framework) =>
+        new LegacyIpcHandler(name, receiver, sender, logger, eventDispatcher, repository, framework);
 }

@@ -26,7 +26,7 @@ internal abstract class LegacyHandler : IHandler, IEventReceiver
         Dispatcher.Subscribe("ChangeZone", this);
         Dispatcher.Subscribe("ChangePrimaryPlayer", this);
         
-        Send((JObject)JToken.FromObject(new
+        SendInitial((JObject)JToken.FromObject(new
         {
             type = "broadcast",
             msgtype = "SendCharName",
@@ -39,6 +39,8 @@ internal abstract class LegacyHandler : IHandler, IEventReceiver
     }
 
     protected abstract void Send(JObject data);
+
+    protected virtual void SendInitial(JObject data) => Send(data);
 
     public virtual void Dispose() => Dispatcher.UnsubscribeAll(this);
 

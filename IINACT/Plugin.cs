@@ -226,6 +226,8 @@ public sealed class Plugin : IDalamudPlugin
         // 戰鬥對象記憶體用它從遊戲碼判斷版面世代（CharacterLayoutFingerprint）。
         container.Register<ISigScanner>(SigScanner);
         container.Register(ChatEcho);
+        // IPC 轉送排到框架執行緒送（Handlers/Ipc/FrameworkSendQueue）。
+        container.Register<IFramework>(Framework);
 
         var overlayPlugin = new RainbowMage.OverlayPlugin.PluginMain(
             PluginInterface.AssemblyLocation.Directory!.FullName, logger, container);
