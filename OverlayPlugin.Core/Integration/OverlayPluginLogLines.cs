@@ -23,7 +23,7 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors
             container.Register(new OverlayPluginLogLineConfig(container));
             container.Register(new LineMapEffect(container));
             container.Register(new LineFateControl(container));
-            container.Register(new LineCEDirector(container));
+            // 刻意不建立 LineCEDirector：台服 opcode 表沒有 CEDirector，建了只會每次載入寫一行 Error，我們也不用這條 log line。
             container.Register(new LineInCombat(container));
             container.Register(new LineCombatant(container));
             container.Register(new LineRSV(container));
@@ -128,7 +128,7 @@ namespace RainbowMage.OverlayPlugin.NetworkProcessors
                                 $"找不到對應的 {opcodeType} opcode:遊戲區域 {machinaRegion}、版本 {version}。" +
                                 $"目前只有這些版本的 opcode 資料:{knownVersions}。" +
                                 "因此 OverlayPlugin 的自訂網路 log line 全部停用" +
-                                "(MapEffect、NpcYell、Countdown、CountdownCancel、RSVData、CEDirector、" +
+                                "(MapEffect、NpcYell、Countdown、CountdownCancel、RSVData、" +
                                 "BattleTalk2、ActorMove、ActorSetPos、SpawnNpcExtra)," +
                                 "依賴這些 log line 的懸浮視窗與 cactbot 觸發器不會被觸發。" +
                                 "傷害/治療量的統計解析走 FFXIV_ACT_Plugin 與 Machina 的 opcode 表," +
