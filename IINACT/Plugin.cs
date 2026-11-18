@@ -22,6 +22,8 @@ public sealed class Plugin : IDalamudPlugin
 
     private const string MainWindowCommandName = "/iinact";
     private const string EndEncCommandName = "/endenc";
+    // 只在載入失敗時用：等背景建 hook 的上限，逾時改由背景完成時收回。
+    private const int ZoneDownHookReleaseWaitMs = 10_000;
     public readonly WindowSystem WindowSystem = new("IINACT");
     
     internal IDalamudPluginInterface PluginInterface { get; }
@@ -84,73 +86,81 @@ public sealed class Plugin : IDalamudPlugin
 
         var createZoneDownHookManager = Task.Run(() 
             => new ZoneDownHookManager(NotificationManager, GameInteropProvider));
-        Version = Assembly.GetExecutingAssembly().GetName().Version!;
-
-        FileDialogManager = new FileDialogManager();
-
-        HttpClient = new HttpClient();
-        
-        var fetchDeps =
-            new FetchDependencies.FetchDependencies(Version, PluginInterface.AssemblyLocation.Directory!.FullName,
-                                                    false, HttpClient, // TC branch always uses global CDN (iinact.com)
-                                                    // 解析依賴換版要看得見：要使用者回報的診斷。
-                                                    message => Log.Information(message),
-                                                    message => Log.Warning(message),
-                                                    message => NotificationManager.AddNotification(new Notification
-                                                    {
-                                                        Content = message,
-                                                        Title = "IINACT",
-                                                        Type = NotificationType.Warning,
-                                                    }));
-        
-        fetchDeps.GetFfxivPlugin();
-        
-        PluginLogTraceListener = new PluginLogTraceListener();
-        Trace.Listeners.Add(PluginLogTraceListener);
-
-        Advanced_Combat_Tracker.ActGlobals.Init();
-        Advanced_Combat_Tracker.ActGlobals.oFormActMain = new Advanced_Combat_Tracker.FormActMain(Log);
-
-        Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
-        Configuration.Initialize(PluginInterface);
-
-        this.TextToSpeechProvider = new TextToSpeechProvider(Configuration);
-        Advanced_Combat_Tracker.ActGlobals.oFormActMain.LogFilePath = Configuration.LogFilePath;
-
-        FfxivActPluginWrapper = new FfxivActPluginWrapper(Configuration, DataManager.Language, ChatGui, Framework, Condition, DataManager);
-        ParserWatchdog = new ParserWatchdog(FfxivActPluginWrapper, () => ZoneDownHookManager, Condition, ClientState, ChatGui, Configuration);
-        Task.Run(() => NetworkLogCleanup.Cleanup(Configuration));
-        OverlayPlugin = InitOverlayPlugin();
-
-        IpcProviders = new IpcProviders(PluginInterface);
-
-        MainWindow = new MainWindow(this);
-
-        WindowSystem.AddWindow(MainWindow);
-
-        CommandManager.AddHandler(MainWindowCommandName, new CommandInfo(OnCommand)
+        try
         {
-            HelpMessage = "Displays the IINACT main window".Loc()
-        });
+            Version = Assembly.GetExecutingAssembly().GetName().Version!;
 
-        CommandManager.AddHandler(EndEncCommandName, new CommandInfo(OnCommand)
+            FileDialogManager = new FileDialogManager();
+
+            HttpClient = new HttpClient();
+        
+            var fetchDeps =
+                new FetchDependencies.FetchDependencies(Version, PluginInterface.AssemblyLocation.Directory!.FullName,
+                                                        false, HttpClient, // TC branch always uses global CDN (iinact.com)
+                                                        // 解析依賴換版要看得見：要使用者回報的診斷。
+                                                        message => Log.Information(message),
+                                                        message => Log.Warning(message),
+                                                        message => NotificationManager.AddNotification(new Notification
+                                                        {
+                                                            Content = message,
+                                                            Title = "IINACT",
+                                                            Type = NotificationType.Warning,
+                                                        }));
+        
+            fetchDeps.GetFfxivPlugin();
+        
+            PluginLogTraceListener = new PluginLogTraceListener();
+            Trace.Listeners.Add(PluginLogTraceListener);
+
+            Advanced_Combat_Tracker.ActGlobals.Init();
+            Advanced_Combat_Tracker.ActGlobals.oFormActMain = new Advanced_Combat_Tracker.FormActMain(Log);
+
+            Configuration = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+            Configuration.Initialize(PluginInterface);
+
+            this.TextToSpeechProvider = new TextToSpeechProvider(Configuration);
+            Advanced_Combat_Tracker.ActGlobals.oFormActMain.LogFilePath = Configuration.LogFilePath;
+
+            FfxivActPluginWrapper = new FfxivActPluginWrapper(Configuration, DataManager.Language, ChatGui, Framework, Condition, DataManager);
+            ParserWatchdog = new ParserWatchdog(FfxivActPluginWrapper, () => ZoneDownHookManager, Condition, ClientState, ChatGui, Configuration);
+            Task.Run(() => NetworkLogCleanup.Cleanup(Configuration));
+            OverlayPlugin = InitOverlayPlugin();
+
+            IpcProviders = new IpcProviders(PluginInterface);
+
+            MainWindow = new MainWindow(this);
+
+            WindowSystem.AddWindow(MainWindow);
+
+            CommandManager.AddHandler(MainWindowCommandName, new CommandInfo(OnCommand)
+            {
+                HelpMessage = "Displays the IINACT main window".Loc()
+            });
+
+            CommandManager.AddHandler(EndEncCommandName, new CommandInfo(OnCommand)
+            {
+                HelpMessage = "Ends the current encounter IINACT is parsing".Loc()
+            });
+
+            PluginInterface.UiBuilder.Draw += DrawUI;
+            PluginInterface.UiBuilder.OpenConfigUi += DrawConfigUI;
+        
+            if (clientState.IsPvP)
+                EnterPvP();
+            else
+                LeavePvP();
+        
+            ClientState.EnterPvP += EnterPvP;
+            ClientState.LeavePvP += LeavePvP;
+
+            ZoneDownHookManager = createZoneDownHookManager.Result;
+            Framework.Update += ParserWatchdog.Tick;
+        }
+        catch
         {
-            HelpMessage = "Ends the current encounter IINACT is parsing".Loc()
-        });
-
-        PluginInterface.UiBuilder.Draw += DrawUI;
-        PluginInterface.UiBuilder.OpenConfigUi += DrawConfigUI;
-        
-        if (clientState.IsPvP)
-            EnterPvP();
-        else
-            LeavePvP();
-        
-        ClientState.EnterPvP += EnterPvP;
-        ClientState.LeavePvP += LeavePvP;
-
-        ZoneDownHookManager = createZoneDownHookManager.Result;
-        Framework.Update += ParserWatchdog.Tick;
+            LoadFailureCleanup.DisposeWhenReady(createZoneDownHookManager, ZoneDownHookReleaseWaitMs, m => Log.Warning(m));
+            throw;
+        }
     }
 
     public void Dispose()
