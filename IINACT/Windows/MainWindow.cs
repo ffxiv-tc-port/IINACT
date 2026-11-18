@@ -269,7 +269,7 @@ public class MainWindow : Window, IDisposable
                 if (OverlayPluginConfig is not null)
                 {
                     OverlayPluginEventConfig.SaveConfig(OverlayPluginConfig);
-                    OverlayPluginConfig.Save();
+                    SaveOverlayPluginConfig(OverlayPluginConfig);
                 }
             }
         }
@@ -432,7 +432,20 @@ public class MainWindow : Window, IDisposable
             OverlayPluginConfig.WSServerPort == originalWsServerPort)
             return;
 
-        OverlayPluginConfig.Save();
+        SaveOverlayPluginConfig(OverlayPluginConfig);
+    }
+
+    // Draw 裡擲例外會讓整個視窗停畫；失敗只記一次，下次改設定再存（不逐幀重試）。
+    private static void SaveOverlayPluginConfig(IPluginConfig config)
+    {
+        try
+        {
+            config.Save();
+        }
+        catch (Exception e)
+        {
+            Plugin.Log.Error(e, "[設定] 儲存 OverlayPlugin 設定失敗，設定檔維持上一次的內容；下次變更設定時會再存一次。");
+        }
     }
 
 }

@@ -3,6 +3,7 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Dalamud.Utility;
 
 namespace RainbowMage.OverlayPlugin
 {
@@ -17,6 +18,10 @@ namespace RainbowMage.OverlayPlugin
 
         [JsonIgnore]
         private string filePath;
+
+        // WriteAllTextSafe 的 <檔名>.tmp 名稱固定、獨占開啟：同一路徑兩個存檔同時進來，後到的會擲例外。
+        [JsonIgnore]
+        private readonly object saveLock = new object();
 
         private bool _followLatestLog;
 
@@ -295,7 +300,17 @@ namespace RainbowMage.OverlayPlugin
             SaveJson(true);
         }
 
+        // 呼叫端要自己 catch：舊檔驗證後的 .backup 複製、序列化、寫檔都可能擲例外；
+        // 寫檔失敗時主檔維持上一次的完整內容（暫存檔＋換名）。
         public void SaveJson(bool force = false)
+        {
+            lock (saveLock)
+            {
+                SaveJsonLocked(force);
+            }
+        }
+
+        private void SaveJsonLocked(bool force)
         {
             if (!force && !isDirty) return;
 
@@ -335,13 +350,12 @@ namespace RainbowMage.OverlayPlugin
                 OverlayObjects.Add(obj);
             }
 
-            using (var stream = new StreamWriter(filePath))
-            {
-                var serializer = new JsonSerializer();
-                serializer.Formatting = Formatting.Indented;
-                serializer.TypeNameHandling = TypeNameHandling.Auto;
-                serializer.Serialize(stream, this);
-            }
+            var text = new StringWriter();
+            var serializer = new JsonSerializer();
+            serializer.Formatting = Formatting.Indented;
+            serializer.TypeNameHandling = TypeNameHandling.Auto;
+            serializer.Serialize(text, this);
+            FilesystemUtil.WriteAllTextSafe(filePath, text.ToString());
 
             isDirty = false;
         }
