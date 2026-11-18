@@ -57,9 +57,31 @@ internal class Patcher
         var ilProcessor = method.Body.GetILProcessor();
         ilProcessor.Replace(0, Instruction.Create(OpCodes.Ret));
 
+        ApplyDnumSumPatch(plugin.Assembly.MainModule);
+
         plugin.RemoveStrongNaming();
         plugin.MakePublic();
         plugin.WriteOut();
+    }
+
+    /// <summary>見 <see cref="DnumSumPatch"/>。不擲例外：沒套用只記一行，DirectHeal 照原樣加總。</summary>
+    private void ApplyDnumSumPatch(ModuleDefinition module)
+    {
+        try
+        {
+            var failure = DnumSumPatch.TryApply(module);
+            if (failure != null)
+                SafeLog(LogWarning, "[FetchDependencies] FFXIV_ACT_Plugin " + MainPluginVersion +
+                                    " 的治療加總改寫沒有套用（" + failure + "）；照原樣加總。");
+            else
+                SafeLog(LogInfo, "[FetchDependencies] 已對 FFXIV_ACT_Plugin " + MainPluginVersion +
+                                 " 套用治療加總改寫：數字不變，只是懸浮視窗每次更新不再為每筆治療配置記憶體。");
+        }
+        catch (Exception e)
+        {
+            SafeLog(LogWarning, "[FetchDependencies] FFXIV_ACT_Plugin " + MainPluginVersion + " 的治療加總改寫失敗、維持原樣（" +
+                                e.GetType().Name + "：" + e.Message + "）。");
+        }
     }
 
     public void LogFilePlugin()

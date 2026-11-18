@@ -70,7 +70,8 @@ namespace RainbowMage.OverlayPlugin
                             {
                                 if (swings[i].Special == "DamageShield")
                                 {
-                                    sum += swings[i].Damage;
+                                    // sum += Damage resolves to Dnum operator +; AddAsDnum gives the same sum without allocating.
+                                    sum = Dnum.AddAsDnum(sum, swings[i].Damage.Number);
                                 }
                             }
 
@@ -103,7 +104,8 @@ namespace RainbowMage.OverlayPlugin
                             {
                                 if (swings[i].DamageType == "Absorb")
                                 {
-                                    sum += swings[i].Damage;
+                                    // sum += Damage resolves to Dnum operator +; AddAsDnum gives the same sum without allocating.
+                                    sum = Dnum.AddAsDnum(sum, swings[i].Damage.Number);
                                 }
                             }
 

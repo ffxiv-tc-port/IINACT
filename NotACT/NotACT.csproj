@@ -22,6 +22,12 @@
         <Folder Include="Datatypes\"/>
     </ItemGroup>
 
+    <!-- Dnum.AddAsDnum is used by OverlayPlugin.Core and by the DirectHeal rewrite FetchDependencies applies to FFXIV_ACT_Plugin. -->
+    <ItemGroup>
+        <InternalsVisibleTo Include="OverlayPlugin.Core"/>
+        <InternalsVisibleTo Include="FFXIV_ACT_Plugin"/>
+    </ItemGroup>
+
     <PropertyGroup>
         <DalamudLibPath>$(appdata)\XIVLauncher\addon\Hooks\dev\</DalamudLibPath>
         <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
