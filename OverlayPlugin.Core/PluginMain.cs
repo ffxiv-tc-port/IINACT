@@ -21,7 +21,6 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading.Tasks;
-using System.Windows.Forms;
 
 namespace RainbowMage.OverlayPlugin
 {
@@ -253,8 +252,8 @@ namespace RainbowMage.OverlayPlugin
             }
             catch (Exception e)
             {
+                // 刻意不跳 WinForms 對話框：這裡在執行緒池上，沒有訊息迴圈；錯誤只進 log。
                 _logger.Log(LogLevel.Error, "InitPlugin: {0}", e.ToString());
-                MessageBox.Show(e.ToString());
                 FailWithLog();
                 throw;
             }
@@ -448,8 +447,8 @@ namespace RainbowMage.OverlayPlugin
             }
             catch (Exception e)
             {
+                // 刻意不跳 WinForms 對話框：卸載時在框架執行緒上存檔，跳框＝遊戲停在模態框直到使用者按掉。
                 _logger.Log(LogLevel.Error, "SaveConfig: {0}", e);
-                MessageBox.Show(e.ToString());
             }
         }
 
