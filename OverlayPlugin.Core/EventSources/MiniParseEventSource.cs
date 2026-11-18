@@ -369,6 +369,7 @@ namespace RainbowMage.OverlayPlugin.EventSources
 #endif
 
             var allies = ActGlobals.oFormActMain.ActiveZone.ActiveEncounter.GetAllies();
+            CombatDataCollectStats.Record(allies?.Count ?? 0);
             Dictionary<string, string> encounter = null;
             List<KeyValuePair<CombatantData, Dictionary<string, string>>> combatant = null;
 

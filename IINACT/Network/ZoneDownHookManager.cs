@@ -386,10 +386,25 @@ public unsafe class ZoneDownHookManager : IDisposable
         }
     }
 
+    // 刻意不改用 ArrayPool：Machina 端何時用完這份陣列沒有契約，早還＝解析靜默讀到別的封包。
     private static void EnqueueToMachina(ReadOnlySpan<byte> data)
     {
         var queue = Machina.FFXIV.Dalamud.DalamudClient.MessageQueue;
-        queue?.Enqueue((GameServerTime.LastSeverTimestamp, data.ToArray()));
+        if (queue == null)
+            return;
+        queue.Enqueue((GameServerTime.LastSeverTimestamp, data.ToArray()));
+        Interlocked.Increment(ref enqueuedPackets);
+        Interlocked.Add(ref enqueuedBytes, data.Length);
+    }
+
+    // 封包入列的累計筆數與位元組（給每小時計數用；在 hook 執行緒累加、框架執行緒讀取並歸零）。
+    private static long enqueuedPackets;
+    private static long enqueuedBytes;
+
+    public static void TakeEnqueueStats(out long packets, out long bytes)
+    {
+        packets = Interlocked.Exchange(ref enqueuedPackets, 0);
+        bytes = Interlocked.Exchange(ref enqueuedBytes, 0);
     }
     
     private static (ushort Opcode, string Name, int TargetCount)[] BuildActionEffectDiagOpcodes(

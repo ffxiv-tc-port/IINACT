@@ -607,12 +607,10 @@ public class CombatantData : IComparable, IEquatable<CombatantData>, IComparable
         var attackType = GetAttackType(ActGlobals.Trans["attackTypeTerm-all"], DamageTypeDataOutgoingHealing);
         if (attackType != null)
         {
-            foreach (var swing in attackType.Items.Where(swing =>
-                                                             (CountWards || swing.DamageType !=
-                                                              ActGlobals.Trans["specialAttackTerm-wardAbsorb"]) &&
-                                                             (masterSwing == null || (long)swing.Damage >
-                                                              (long)masterSwing.Damage)))
-                masterSwing = swing;
+            foreach (var swing in attackType.Items)
+                if ((CountWards || swing.DamageType != ActGlobals.Trans["specialAttackTerm-wardAbsorb"]) &&
+                    (masterSwing == null || (long)swing.Damage > (long)masterSwing.Damage))
+                    masterSwing = swing;
         }
 
         if (masterSwing == null) return Empty;

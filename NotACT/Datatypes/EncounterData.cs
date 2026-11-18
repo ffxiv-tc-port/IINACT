@@ -293,8 +293,17 @@ public class EncounterData
                                    ? $"{Duration.Minutes:00}:{Duration.Seconds:00}"
                                    : $"{Duration.Hours:00}:{Duration.Minutes:00}:{Duration.Seconds:00}";
 
-    public long Damage =>
-        (!ignoreEnemies ? GetAllies() : new List<CombatantData>(Items.Values)).Sum(t => t.Damage);
+    // Damage／Healed 與 LINQ Sum 相同（照清單順序 checked 累加），只是不配置列舉器。
+    public long Damage
+    {
+        get
+        {
+            var sum = 0L;
+            foreach (var t in !ignoreEnemies ? GetAllies() : new List<CombatantData>(Items.Values))
+                sum = checked(sum + t.Damage);
+            return sum;
+        }
+    }
 
     public int AlliedKills =>
         (!ignoreEnemies ? GetAllies() : new List<CombatantData>(Items.Values)).Sum(
@@ -304,9 +313,16 @@ public class EncounterData
                                .Where(combatantData => !combatantData.Name.Contains(" "))
                                .Sum(combatantData => combatantData.Deaths);
 
-    public long Healed =>
-        (!ignoreEnemies ? GetAllies() : new List<CombatantData>(Items.Values)).Sum(
-            combatantData => combatantData.Healed);
+    public long Healed
+    {
+        get
+        {
+            var sum = 0L;
+            foreach (var combatantData in !ignoreEnemies ? GetAllies() : new List<CombatantData>(Items.Values))
+                sum = checked(sum + combatantData.Healed);
+            return sum;
+        }
+    }
 
     public double DPS => Damage / Duration.TotalSeconds;
 
@@ -636,19 +652,23 @@ public class EncounterData
     public string GetMaxHit(bool ShowType = true, bool UseSuffix = true)
     {
         var allies = ignoreEnemies ? new List<CombatantData>(Items.Values) : GetAllies();
+        var all = ActGlobals.Trans["attackTypeTerm-all"];
 
-        var maxSwing = allies
-                       .SelectMany(combatant => combatant.GetAttackType(ActGlobals.Trans["attackTypeTerm-all"],
-                                                                        CombatantData.DamageTypeDataOutgoingDamage)
-                                                         ?.Items ?? new List<MasterSwing>())
-                       .Where(swing => swing.Damage > 0).MaxBy(swing => swing.Damage);
+        var max = new MaxByDamage();
+        foreach (var combatant in allies)
+        {
+            if (combatant.GetAttackType(all, CombatantData.DamageTypeDataOutgoingDamage)?.Items is not { } items)
+                continue;
+            foreach (var swing in items)
+                if (swing.Damage > 0)
+                    max.Offer(swing);
+        }
 
+        var maxSwing = max.Result;
         if (maxSwing == null)
             return string.Empty;
 
-        var arg = allies.FirstOrDefault(combatant => combatant.GetAttackType(ActGlobals.Trans["attackTypeTerm-all"],
-                                            CombatantData.DamageTypeDataOutgoingDamage) is { } attackType &&
-                                                     ContainsSwing(attackType.Items, maxSwing))?.Name;
+        var arg = FirstOwnerName(allies, all, CombatantData.DamageTypeDataOutgoingDamage, maxSwing);
 
         if (arg == null)
             return string.Empty;
@@ -663,24 +683,62 @@ public class EncounterData
     public string GetMaxHeal(bool ShowType = true, bool CountWards = true, bool UseSuffix = true)
     {
         var allies = !ignoreEnemies ? GetAllies() : new List<CombatantData>(Items.Values);
-        var maxHealSwing = allies
-                           .Where(a => a.GetAttackType(ActGlobals.Trans["attackTypeTerm-all"], CombatantData.DamageTypeDataOutgoingHealing) != null)
-                           .SelectMany(a => a.GetAttackType(ActGlobals.Trans["attackTypeTerm-all"], CombatantData.DamageTypeDataOutgoingHealing)?.Items!)
-                           .Where(s => CountWards || s.DamageType != ActGlobals.Trans["specialAttackTerm-wardAbsorb"]).MaxBy(s => s.Damage);
+        var all = ActGlobals.Trans["attackTypeTerm-all"];
+        var ward = CountWards ? null : ActGlobals.Trans["specialAttackTerm-wardAbsorb"];
 
+        var max = new MaxByDamage();
+        foreach (var a in allies)
+        {
+            var attackType = a.GetAttackType(all, CombatantData.DamageTypeDataOutgoingHealing);
+            if (attackType == null)
+                continue;
+            foreach (var s in attackType.Items)
+                if (CountWards || s.DamageType != ward)
+                    max.Offer(s);
+        }
+
+        var maxHealSwing = max.Result;
         if (maxHealSwing == null)
             return string.Empty;
 
         var combatantName =
-            allies.FirstOrDefault(
-                a => a.GetAttackType(ActGlobals.Trans["attackTypeTerm-all"],
-                                     CombatantData.DamageTypeDataOutgoingHealing) is { } attackType &&
-                     ContainsSwing(attackType.Items, maxHealSwing))?.Name ?? string.Empty;
+            FirstOwnerName(allies, all, CombatantData.DamageTypeDataOutgoingHealing, maxHealSwing) ?? string.Empty;
         var damageString = ActGlobals.oFormActMain.CreateDamageString(maxHealSwing.Damage, UseSuffix, ShowType);
 
         return ShowType
                    ? $"{combatantName}-{maxHealSwing.AttackType}-{damageString}"
                    : $"{combatantName}-{damageString}";
+    }
+
+    // 與 MaxBy(s => s.Damage) 逐筆餵入的結果相同：鍵為 null 的跳過（全是 null 回第一筆）、比較器同
+    // Comparer<Dnum>.Default、相等時保留先到的。
+    private struct MaxByDamage
+    {
+        private MasterSwing? first, best;
+        private Dnum? bestKey;
+
+        public void Offer(MasterSwing swing)
+        {
+            var key = swing.Damage;
+            first ??= swing;
+            if (key is null) return;
+            if (bestKey is null || Comparer<Dnum>.Default.Compare(key, bestKey) > 0)
+            {
+                best = swing;
+                bestKey = key;
+            }
+        }
+
+        public readonly MasterSwing? Result => bestKey is null ? first : best;
+    }
+
+    // 與 allies.FirstOrDefault(a => a.GetAttackType(all, type) is { } t && ContainsSwing(t.Items, target))?.Name 相同。
+    private static string? FirstOwnerName(List<CombatantData> allies, string all, string type, MasterSwing target)
+    {
+        foreach (var a in allies)
+            if (a.GetAttackType(all, type) is { } attackType && ContainsSwing(attackType.Items, target))
+                return a.Name;
+        return null;
     }
 
     // 與 items.Contains(target) 結果相同（MasterSwing.Equals＝兩邊 ToString 相等，每比一下配置兩個字串）。ToString 以
@@ -690,6 +748,7 @@ public class EncounterData
         var span = CollectionsMarshal.AsSpan(items ?? throw new NullReferenceException());
         var exact = target.GetType() == typeof(MasterSwing);
         var second = target.Time.Ticks / TimeSpan.TicksPerSecond;
+        var targetPlain = exact && !HasBar(target);
         foreach (var swing in span)
         {
             if (swing is null) continue;
@@ -697,6 +756,7 @@ public class EncounterData
             {
                 if (ReferenceEquals(swing, target)) return true;
                 if (swing.Time.Ticks / TimeSpan.TicksPerSecond != second) continue;
+                if (targetPlain && !HasBar(swing) && !SameTextFields(swing, target)) continue;
             }
 
             if (swing.Equals(target)) return true;
@@ -704,6 +764,19 @@ public class EncounterData
 
         return false;
     }
+
+    // ToString＝Time|Damage|Attacker|Special|AttackType|DamageType|Victim。後五欄都不含 '|' 時，從右邊切出的五段
+    // 就是這五欄本身，所以任一欄不同＝ToString 不同，不必組字串；含 '|' 的照舊交給 Equals。null 與空字串印出來一樣。
+    private static bool HasBar(MasterSwing s) =>
+        Bar(s.Attacker) || Bar(s.Special) || Bar(s.AttackType) || Bar(s.DamageType) || Bar(s.Victim);
+
+    private static bool Bar(string? field) => field != null && field.Contains('|');
+
+    private static bool SameTextFields(MasterSwing a, MasterSwing b) =>
+        Same(a.Attacker, b.Attacker) && Same(a.Victim, b.Victim) && Same(a.AttackType, b.AttackType) &&
+        Same(a.Special, b.Special) && Same(a.DamageType, b.DamageType);
+
+    private static bool Same(string? a, string? b) => string.Equals(a ?? string.Empty, b ?? string.Empty);
     
     public bool GetIsSelective() => sParsing;
 

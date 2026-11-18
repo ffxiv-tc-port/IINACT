@@ -47,6 +47,7 @@ public sealed class Plugin : IDalamudPlugin
 
     private FfxivActPluginWrapper FfxivActPluginWrapper { get; }
     internal ParserWatchdog ParserWatchdog { get; }
+    private CombatPathHourlyStats CombatPathHourlyStats { get; } = new();
     private RainbowMage.OverlayPlugin.PluginMain OverlayPlugin { get; set; }
     private RainbowMage.OverlayPlugin.WebSocket.ServerController? WebSocketServer { get; set; }
     internal string OverlayPluginStatus => OverlayPlugin.Status;
@@ -155,6 +156,7 @@ public sealed class Plugin : IDalamudPlugin
 
             ZoneDownHookManager = createZoneDownHookManager.Result;
             Framework.Update += ParserWatchdog.Tick;
+            Framework.Update += CombatPathHourlyStats.Tick;
         }
         catch
         {
@@ -166,6 +168,8 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         Framework.Update -= ParserWatchdog.Tick;
+        Framework.Update -= CombatPathHourlyStats.Tick;
+        CombatPathHourlyStats.FlushOnUnload();
         ClientState.EnterPvP -= EnterPvP;
         ClientState.LeavePvP -= LeavePvP;
         IpcProviders.Dispose();

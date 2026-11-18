@@ -194,8 +194,10 @@ public class AttackType : IComparable, IEquatable<AttackType>, IComparable<Attac
             long _damage = 0;
             try
             {
-                _damage = Items.Where(masterSwing => (long)masterSwing.Damage > 0).Aggregate(0L,
-                    (current, masterSwing) => Dnum.AddAsDnum(current, masterSwing.Damage.Number));
+                // 與 Where(>0).Aggregate(AddAsDnum) 相同；List 的 foreach 一樣在集合被改時擲 InvalidOperationException。
+                foreach (var masterSwing in Items)
+                    if ((long)masterSwing.Damage > 0)
+                        _damage = Dnum.AddAsDnum(_damage, masterSwing.Damage.Number);
             }
             catch (InvalidOperationException)
             {
