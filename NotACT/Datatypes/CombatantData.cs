@@ -1,4 +1,5 @@
-﻿using static System.String;
+﻿using System.Collections.Immutable;
+using static System.String;
 
 
 namespace Advanced_Combat_Tracker;
@@ -436,6 +437,15 @@ public class CombatantData : IComparable, IEquatable<CombatantData>, IComparable
 
     public SortedList<string, int> Allies { get; set; }
 
+    // Allies 由戰鬥動作執行緒寫入、懸浮視窗更新執行緒讀取；兩邊都經這把鎖，讀端拿到的是某一刻的完整快照。
+    private readonly object alliesLock = new();
+
+    internal ImmutableArray<KeyValuePair<string, int>> SnapshotAllies()
+    {
+        lock (alliesLock)
+            return Allies.ToImmutableArray();
+    }
+
     public Dictionary<string, object> Tags { get; set; } = new();
 
     public int CompareTo(object? obj)
@@ -827,11 +837,14 @@ public class CombatantData : IComparable, IEquatable<CombatantData>, IComparable
     public void ModAlly(string Combatant, int Mod)
     {
         if (Name == "Unknown" || Combatant == "UNKNOWN") return;
-        if (!Allies.ContainsKey(Combatant))
-            Allies.Add(Combatant, 0);
+        lock (alliesLock)
+        {
+            if (!Allies.ContainsKey(Combatant))
+                Allies.Add(Combatant, 0);
 
-        if (Mod == 0) return;
-        Allies[Combatant] += Mod;
+            if (Mod == 0) return;
+            Allies[Combatant] += Mod;
+        }
         Parent.SetAlliesUncached();
     }
 

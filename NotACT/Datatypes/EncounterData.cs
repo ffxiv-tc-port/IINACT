@@ -540,7 +540,7 @@ public class EncounterData
                 ImmutableArray<KeyValuePair<string,int>> subAllies;
                 try
                 {
-                    subAllies = sortedAllies.Values[i].cd.Allies.ToImmutableArray();
+                    subAllies = sortedAllies.Values[i].cd.SnapshotAllies();
                 }
                 catch (InvalidOperationException)
                 {
