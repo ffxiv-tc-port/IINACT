@@ -19,17 +19,28 @@
 
 ## 台服版的修改
 
-- 封包 opcode、解混淆表與倒數計時、MapEffect、CE 進度等自訂 log line 對應台服版本；遇到還沒支援的遊戲版本時停用解混淆並通知
+- 封包 opcode、解混淆表與倒數計時、MapEffect 等自訂 log line 對應台服版本；遇到還沒支援的遊戲版本時停用解混淆並通知
+- 解析元件內建的名稱表跟不上台服改版時，載入時以遊戲資料補上缺的技能、狀態與區域名稱，新內容不再顯示成 unknown
+- cactbot 疊加層使用繁體中文語系；IINACT 重新啟動或更新後，不必換區就能拿到目前的區域、角色與戰鬥狀態
 - 解析元件只安裝已知雜湊的版本，換版期間沿用舊版並提示
 - 遊戲改版後封包接收函式的特徵碼對不上時，插件照常載入並明講「收不到網路資料，戰鬥解析停用」；命中數不對時不掛 hook
 - Windows 內建語音不能用時，不再自動把文字送給 Google
+- 疊加層設定改成整份寫好才替換原檔，存檔途中出錯不會把設定檔寫壞；存檔失敗只寫進紀錄，不再跳出對話框卡住遊戲
+- 其他插件透過 IPC 訂閱事件時，改在遊戲主執行緒依序送出
 - 修正 WebSocket Server 分頁每幀存檔造成的卡頓，多處降低記憶體用量
 - 介面繁體中文化
 
+## 安裝
+
+1. 在遊戲內輸入 `/xlsettings` 開啟「Dalamud 設定」，到「試驗性功能」分頁的「第三方插件倉庫」加入
+   `https://raw.githubusercontent.com/ffxiv-tc-port/DalamudPluginsTC/main/repo.json`
+   並啟用、儲存。
+2. 輸入 `/xlplugins` 開啟「插件管理員」，搜尋「IINACT」安裝。
+
+同一個插件只裝這裡的版本，不要同時裝上游版。
+
 ## 需要搭配的插件
 
-- 顯示疊加層畫面：Crossingway（遊戲內瀏覽器覆蓋層）
+- 顯示疊加層畫面：[Crossingway](https://github.com/ffxiv-tc-port/Crossingway)（遊戲內瀏覽器覆蓋層）
 
-## 授權
-
-依照原專案授權條款發布，詳見 [LICENSE](LICENSE)。
+授權：GPL-3.0（見 LICENSE）
