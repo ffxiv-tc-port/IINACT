@@ -1,3 +1,4 @@
 [submodule "machina"]
 	path = machina
 	url = https://github.com/ffxiv-tc-port/machina.git
+	branch = tc-7.30
